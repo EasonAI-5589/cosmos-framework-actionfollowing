@@ -59,6 +59,18 @@ delivery branch:
 agent/actionfollowing-rot6d20-baseline
 ```
 
+公开交付记录：
+
+```text
+Cosmos3 initial scoped commit:
+dd51cbca4c8a79fef3b54ea684e2072242540c7a
+draft review: https://github.com/EasonAI-5589/cosmos-framework-actionfollowing/pull/1
+
+Cosmos2.5 initial scoped commit:
+825520534173e91c9de426912ceea775b3dd70d8
+draft review: https://github.com/EasonAI-5589/cosmos-predict2.5-actionfollowing/pull/2
+```
+
 两个 fork 只接收本文列出的 ActionFollowing-owned files、复现文档和对应 smoke bundle，不向 NVIDIA upstream 自动创建 PR。
 
 运行环境与公开交付目录如下：
