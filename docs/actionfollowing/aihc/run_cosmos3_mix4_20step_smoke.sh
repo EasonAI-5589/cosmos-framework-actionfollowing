@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+RUN_TAG="${AIHC_JOB_ID:-manual_$(date +%Y%m%d_%H%M%S)}"
+BOOTSTRAP_LOG_DIR=/mnt/dataset/csx_ckp/Action-Following/outputs/cosmos3/mix4/bootstrap_logs
+mkdir -p "$BOOTSTRAP_LOG_DIR"
+BOOTSTRAP_LOG="$BOOTSTRAP_LOG_DIR/${RUN_TAG}.log"
+exec > >(tee -a "$BOOTSTRAP_LOG") 2>&1
+trap 'rc=$?; printf "[BOOTSTRAP_ERROR] rc=%s line=%s command=%q\n" "$rc" "${BASH_LINENO[0]}" "$BASH_COMMAND"; exit "$rc"' ERR
+echo "[BOOTSTRAP] job_id=$RUN_TAG log=$BOOTSTRAP_LOG"
+
 die() {
   echo "[FATAL] $*" >&2
   exit 1
@@ -30,28 +38,20 @@ WAN_VAE_PATH=/mnt/dataset/public_data/cosmos3-cache/wan22_vae/Wan2.2_VAE.pth
 BASE_CHECKPOINT_PATH=/mnt/gyc_ckp/models/Cosmos3-Nano-DCP-411f42a8fdfb
 HF_HOME=/mnt/dataset/public_data/cosmos3-cache/huggingface
 COSMOS3_TOKENIZER_PATH="$HF_HOME/hub/models--nvidia--Cosmos3-Nano/snapshots/411f42a8fdfb8c5b2583cb8786e0938f49796eaa/text_tokenizer"
-RUN_TAG="${AIHC_JOB_ID:-manual_$(date +%Y%m%d_%H%M%S)}"
 OUT_BASE="/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_${RUN_TAG}"
-
-for candidate in \
-  /mnt/dataset/csx_workspace/Ideas/AF3/code/RoboTwin/description/task_instruction \
-  /mnt/dataset/sixiangchen_workspace/Ideas/AF3/code/RoboTwin/description/task_instruction; do
-  if [[ -f "$candidate/turn_switch.json" ]]; then
-    ROBOTWIN_TASK_INSTRUCTION_ROOT="$candidate"
-    break
-  fi
-done
-[[ -n "${ROBOTWIN_TASK_INSTRUCTION_ROOT:-}" ]] || die "RoboTwin task_instruction root missing"
+ROBOTWIN_FULL_DESCRIPTION_MANIFEST="$REPO/docs/actionfollowing/assets/robotwin_50_full_descriptions.json"
 
 [[ -x "$REPO/.venv/bin/python" ]] || die "Cosmos3 venv missing"
 [[ -f "$WAN_VAE_PATH" ]] || die "Wan2.2 VAE missing: $WAN_VAE_PATH"
 [[ -f "$COSMOS3_TOKENIZER_PATH/vocab.json" ]] || die "Cosmos3 tokenizer vocab missing"
 [[ -f "$COSMOS3_TOKENIZER_PATH/merges.txt" ]] || die "Cosmos3 tokenizer merges missing"
+[[ -f "$ROBOTWIN_FULL_DESCRIPTION_MANIFEST" ]] || \
+  die "RoboTwin full_description manifest missing: $ROBOTWIN_FULL_DESCRIPTION_MANIFEST"
 [[ -f "$AFD_ROOT/demo_clean_zed2i_visible/turn_switch/meta/info.json" ]] || die "clean data missing"
 [[ -f "$AFD_ROOT/exploration/tasks/turn_switch/meta/info.json" ]] || die "mix4 exploration data missing"
 
 export AFD_ROOT WAN_VAE_PATH BASE_CHECKPOINT_PATH HF_HOME COSMOS3_TOKENIZER_PATH OUT_BASE
-export ROBOTWIN_TASK_INSTRUCTION_ROOT
+export ROBOTWIN_FULL_DESCRIPTION_MANIFEST
 unset AFD_VIDEO_FALLBACK_ROOTS AFD_VIDEO_SYMLINK_PREFIX_REMAP
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export LD_LIBRARY_PATH=
@@ -124,13 +124,30 @@ expected = {
     "exploration": 120_821,
 }
 
+prompt_manifest = json.loads(Path(os.environ["ROBOTWIN_FULL_DESCRIPTION_MANIFEST"]).read_text())
+assert prompt_manifest["schema_version"] == 1, prompt_manifest
+assert prompt_manifest["source_repository"] == "https://github.com/RoboTwin-Platform/RoboTwin"
+assert prompt_manifest["source_commit"] == "c3ddfa8b97d5519efa828b075999bd0006778e5e"
+canonical_prompts = prompt_manifest["full_descriptions"]
+assert set(canonical_prompts) == set(ROBOTWIN_50_TASKS), (
+    set(canonical_prompts),
+    set(ROBOTWIN_50_TASKS),
+)
+
 
 def canonical_full_description(task_name: str) -> str:
-    task_path = Path(os.environ["ROBOTWIN_TASK_INSTRUCTION_ROOT"]) / f"{task_name}.json"
-    payload = json.loads(task_path.read_text())
-    prompt = payload.get("full_description")
-    assert isinstance(prompt, str) and prompt.strip(), (task_path, prompt)
+    prompt = canonical_prompts[task_name]
+    assert isinstance(prompt, str) and prompt.strip(), (task_name, prompt)
     return prompt.strip()
+
+
+def metadata_full_description(row: dict) -> tuple[str, str]:
+    for column in ("task", "__index_level_0__"):
+        prompt = row.get(column)
+        if isinstance(prompt, str) and prompt.strip():
+            return prompt.strip(), column
+    raise AssertionError(f"tasks.parquet row has no full_description text column: {row}")
+
 
 for protocol in ("clean", "mix4"):
     dataset = ActionFollowingLeRobotDataset(
@@ -144,13 +161,14 @@ for protocol in ("clean", "mix4"):
     assert len(set(dataset._task_by_source)) == 50
     family_tasks = defaultdict(set)
     metadata_prompt_count = 0
+    metadata_prompt_columns = set()
     for source_root, family, task_name in dataset._source_specs:
         family_tasks[family].add(task_name)
         rows = pq.read_table(Path(source_root) / "meta" / "tasks.parquet").to_pylist()
         assert len(rows) == 1, (source_root, len(rows))
-        metadata_prompt = rows[0].get("task")
-        assert isinstance(metadata_prompt, str) and metadata_prompt.strip(), (source_root, rows[0])
-        assert metadata_prompt.strip() == canonical_full_description(task_name), (
+        metadata_prompt, metadata_prompt_column = metadata_full_description(rows[0])
+        metadata_prompt_columns.add(metadata_prompt_column)
+        assert metadata_prompt == canonical_full_description(task_name), (
             source_root,
             metadata_prompt,
             canonical_full_description(task_name),
@@ -176,12 +194,14 @@ for protocol in ("clean", "mix4"):
         "tasks": len(set(dataset._task_by_source)),
         "family_task_counts": {family: len(tasks) for family, tasks in sorted(family_tasks.items())},
         "metadata_prompt_count": metadata_prompt_count,
+        "metadata_prompt_columns": sorted(metadata_prompt_columns),
         "effective_counts": dataset.family_effective_counts,
         "audit": audit,
         "action_shape": list(item["action"].shape),
         "video_shape": list(item["video"].shape),
         "timeline": "current1+future32",
         "prompt_source": "RoboTwin full_description",
+        "prompt_manifest_source_commit": prompt_manifest["source_commit"],
         "prompt": item["ai_caption"],
         "views": ["cam_high", "cam_left_wrist", "cam_right_wrist"],
     }, sort_keys=True))
@@ -206,6 +226,7 @@ for protocol in ("clean", "mix4"):
             "video_shape": list(family_item["video"].shape),
             "timeline": "current1+future32",
             "prompt_source": "RoboTwin full_description",
+            "prompt_manifest_source_commit": prompt_manifest["source_commit"],
             "prompt": family_item["ai_caption"],
         }, sort_keys=True))
         del family_item

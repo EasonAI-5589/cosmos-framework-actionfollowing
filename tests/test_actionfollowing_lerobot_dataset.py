@@ -1,3 +1,6 @@
+import json
+from pathlib import Path
+
 import pytest
 import torch
 
@@ -14,6 +17,10 @@ from cosmos_framework.data.generator.action.datasets.actionfollowing_lerobot_dat
     _num_valid_forward_dynamics_windows,
     _resolve_actionfollowing_video_path,
     actionfollowing_sources,
+)
+
+ROBOTWIN_PROMPT_MANIFEST = (
+    Path(__file__).parents[1] / "docs" / "actionfollowing" / "assets" / "robotwin_50_full_descriptions.json"
 )
 
 
@@ -75,6 +82,16 @@ def test_full_description_is_required() -> None:
     )
     with pytest.raises(ValueError, match="full_description"):
         _full_description_from_sample({"task": "  "}, task_name="move_can_pot")
+
+
+def test_official_full_description_manifest_covers_exact_full50() -> None:
+    manifest = json.loads(ROBOTWIN_PROMPT_MANIFEST.read_text())
+
+    assert manifest["schema_version"] == 1
+    assert manifest["source_repository"] == "https://github.com/RoboTwin-Platform/RoboTwin"
+    assert manifest["source_commit"] == "c3ddfa8b97d5519efa828b075999bd0006778e5e"
+    assert set(manifest["full_descriptions"]) == set(ROBOTWIN_50_TASKS)
+    assert all(prompt.strip() for prompt in manifest["full_descriptions"].values())
 
 
 def test_getitem_keeps_real_future32_and_uses_full_description() -> None:

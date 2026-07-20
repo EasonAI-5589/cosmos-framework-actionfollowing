@@ -7,7 +7,8 @@
 - Cosmos-Predict2.5 的真实 `mix4` 20 optimizer-step smoke 已在 AIHC `cce-pmm1yohj/train22` 完成并仍然有效。
 - Cosmos3 历史 smoke `job-s4qigpgr3lky` 虽然完成 20 steps、finite loss 和 checkpoint，但复查发现它把第 32 个 observation 复制成尾帧且 text prompt 为空；该结果只能作为历史 bring-up 证据，不能再作为 canonical smoke gate。
 - Cosmos3 loader 已改为读取真实 `O[t]..O[t+32]`，并使用 LeRobot task metadata 中的 RoboTwin `full_description`；新 20-step smoke bundle 直接读取 Motus mix41111 使用的 symlink-free Rot6D20 train root，并对五类 Cosmos3 counts 做硬断言。登录节点预检已真实 decode clean 和 mix4 五类数据，50 tasks、`[32,20]`、三视角 33 帧及 100k 采样比例均通过。
-- 修复版 Cosmos3 mix4 20-step smoke 已提交到 `cce-pmm1yohj/train`：`job-ploabmfspj7o`。当前真实状态为 `Created`、`0 pods`，尚未开始容器内数据审计或训练。
+- 首次 `train` 提交 `job-ploabmfspj7o` 已自然失败。第一因果来自 node log：`[FATAL] RoboTwin task_instruction root missing`；它只运行到 bootstrap，没有进入数据 decode 或 optimizer step。修复版不再依赖未挂载的个人 RoboTwin 工作区，而是使用仓库内、固定到 RoboTwin 官方 commit `c3ddfa8b97d5519efa828b075999bd0006778e5e` 的 50-task `full_description` manifest。
+- 已逐项比较 manifest 与官方 50 个 JSON，并在 Motus symlink-free train root 上检查全部 350 个 source：clean / perturbed / random feasible / counterfactual replay / exploration 均覆盖 50 tasks，文本全部一致。真实 LeRobot v2 `tasks.parquet` 把文本保存在 `__index_level_0__`，loader 会恢复为 task 文本；smoke 现已显式审计并记录该列。
 - Cosmos3 使用三视角；Cosmos-Predict2.5 使用原生 action-conditioned 单视角 head。
 - `clean` 与 `mix4` 的 40k 训练配置已经写好，但当前没有 Cosmos3/Cosmos-Predict2.5 40k AIHC job。
 - 因此当前状态是“Cosmos3 bug 已修到本地代码并进入重新验证，Cosmos2.5 smoke gate 通过”，不是“完整 baseline 复现完成”。任何 Cosmos3 40k 都必须等待修复版 smoke 通过。
@@ -17,7 +18,7 @@
 | 模型 | 协议 | 代码 | 真实数据检查 | 20-step smoke | 40k job | 当前结论 |
 |---|---|---|---|---|---|---|
 | Cosmos3-Nano | `clean` | 修复已实现，unit tests/ruff 通过 | 真实 clean decode、50 tasks、Rot6D20 登录节点预检通过 | 未单独启动 clean-only smoke | 未创建 | 不得启动 40k |
-| Cosmos3-Nano | `mix4` | 修复已实现，unit tests/ruff/structured TOML dryrun 通过 | 五类 counts、50 tasks、`[32,20]`、33 帧三视角、full_description 与 100k sampler audit 预检通过 | `job-ploabmfspj7o` 已提交；`Created`、`0 pods` | 未创建 | 等待真实 20-step smoke gate |
+| Cosmos3-Nano | `mix4` | 修复已实现，12 unit tests/ruff/bundle validator 通过 | 五类 counts、50 tasks、`[32,20]`、33 帧三视角、官方 full_description 与 100k sampler audit 预检通过 | `job-ploabmfspj7o` 在 prompt 路径 bootstrap 阶段自然失败；manifest 修复版待重提 | 未创建 | 等待新的真实 20-step smoke gate |
 | Cosmos-Predict2.5-2B | `clean` | 已实现 | clean root、50 tasks、Rot6D20 已验证 | 未单独启动 clean-only smoke | 未创建 | 配置可审查，尚未形成训练结果 |
 | Cosmos-Predict2.5-2B | `mix4` | 已实现 | 五类数据、counts、10000 次 sampler audit、单视角已验证 | `job-c469z4urkofj` 成功 | 未创建 | smoke gate 通过 |
 
@@ -166,6 +167,9 @@ examples/toml/sft_config/actionfollowing_full50_mix4.toml
 examples/launch_sft_actionfollowing_full50_clean.sh
 examples/launch_sft_actionfollowing_full50_mix4.sh
 tests/test_actionfollowing_lerobot_dataset.py
+docs/actionfollowing/assets/robotwin_50_full_descriptions.json
+docs/actionfollowing/aihc/run_cosmos3_mix4_20step_smoke.sh
+docs/actionfollowing/tools/validate_job_bundle.py
 ```
 
 此外有两处注册/兼容修改：
@@ -249,7 +253,7 @@ Cosmos3 loader 的关键行为：
 3. `perturbed` 已是 chunk-level，每条 sample 只贡献一个 32-step prefix；其它 trajectory-level family 使用 stride-1 sliding windows，并排除没有真实 `O[t+32]` 的 terminal start。
 4. sampler 在 flattened chunk index 上构建 deterministic weighted CDF，不先抽 family。
 5. 每个样本输出 32 步 Rot6D20 action；三视角分别查询 33 个时间点并解码真实 `O[t]..O[t+32]`，禁止复制尾帧。
-6. `ai_caption` 必须来自 LeRobot `sample["task"]`，其 metadata 已与 RoboTwin `description/task_instruction/<task>.json` 的 `full_description` 对齐；空 prompt 必须 fail loudly。
+6. `ai_caption` 必须来自 LeRobot `sample["task"]`，其 metadata 已与仓库内固定版本的 RoboTwin `full_description` manifest 对齐；manifest 记录官方 repository、commit 和原始 JSON path，空 prompt 或任一 source 不一致必须 fail loudly。
 7. 10 FPS enhanced 视频仍配 30 Hz action timeline，nearest-frame tolerance 为 `0.051s`；不得把 action 标签重采样到 10 Hz。
 
 ### Cosmos-Predict2.5 模块
@@ -438,13 +442,25 @@ checkpoint=.../checkpoints/iter_000000020
 AIHC name: ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_train_20260721
 script: docs/actionfollowing/aihc/run_cosmos3_mix4_20step_smoke.sh
 job JSON: docs/actionfollowing/aihc/cosmos3_job_20step_smoke.json
-job ID: job-ploabmfspj7o
-queue/status: cce-pmm1yohj/train; Created; 0 pods (2026-07-21 01:55:59 +08)
-output: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-ploabmfspj7o
+first job ID: job-ploabmfspj7o
+queue/final status: cce-pmm1yohj/train; Failed (2026-07-21 02:51:25 +08)
+expected output (not created): /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-ploabmfspj7o
 console: https://console.bce.baidu.com/aihc/#/job/detail/job-ploabmfspj7o?poolId=cce-pmm1yohj
 ```
 
-该 bundle 会在训练前强制检查 32 action timestamps、33 camera timestamps、五类新 counts、五类各 50 tasks、全部 350 个 LeRobot task metadata 与 RoboTwin `full_description` 一致，并对每个 family 做真实 decode probe。训练结束后还会硬检查 rank-0 optimizer steps 恰好为 1..20、loss 全部 finite、`iter_000000020` DCP 与 latest marker，之后才写 `SMOKE_RESULT.txt`。
+该 job 的容器从 `Scheduled/Starting` 进入 `Failed`，pod `job-ploabmfspj7o-master-0` 的 node log 第一条也是唯一因果为：
+
+```text
+[FATAL] RoboTwin task_instruction root missing
+```
+
+失败发生在输出目录创建和数据审计之前，因此没有 loss/checkpoint，不能解释为训练失败或数据错误。修复后 bundle 会从最早期 bootstrap 起把 stdout/stderr 持久化到：
+
+```text
+/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/bootstrap_logs/<job-id>.log
+```
+
+训练前会强制检查 32 action timestamps、33 camera timestamps、五类新 counts、五类各 50 tasks、全部 350 个 LeRobot task metadata 与固定版本的 RoboTwin 官方 `full_description` 一致，并记录命中的 parquet prompt 列，再对每个 family 做真实 decode probe。训练结束后还会硬检查 rank-0 optimizer steps 恰好为 1..20、loss 全部 finite、`iter_000000020` DCP 与 latest marker，之后才写 `SMOKE_RESULT.txt`。
 
 ### Cosmos-Predict2.5 smoke 证据链
 
@@ -628,6 +644,8 @@ batch 8 不是排队紧张时的替代方案。只有 batch-16 运行日志出�
 - Cosmos3 注册了 ActionFollowing experiment，修复了并发 metadata loader 的 `tqdm` lock。
 - Cosmos3 action/observation timeline 已改为 `A[t:t+32]` 对应真实 `O[t:t+33]`，删除复制尾帧，并排除每条 trajectory 的无后继 terminal window。
 - Cosmos3 text conditioning 已从空字符串改为 RoboTwin 每任务 `full_description`，且 smoke 会与 canonical JSON 逐样本比对。
+- Cosmos3 prompt 审计不再依赖未挂载的个人 RoboTwin checkout；50-task manifest 固定到 RoboTwin 官方 commit，并兼容真实 LeRobot v2 `tasks.parquet` 的 `__index_level_0__` 文本列。
+- Cosmos3 bootstrap 从首条命令开始写 PFS 日志，挂载、入口或 prompt manifest 等早期错误不再只依赖 AIHC 聚合日志。
 - enhanced split 中坏绝对软链通过受限 prefix remap 解析，不修改 canonical split。
 - exploration 视频部分为 10 FPS，但 action label 保持 30 Hz；timestamp tolerance 固定为 `0.051s`，允许最近重复帧，不重定时 action。
 - Cosmos2.5 loader 已把 NumPy HWC/THWC 转成 contiguous Torch TCHW。
@@ -649,6 +667,7 @@ batch 8 不是排队紧张时的替代方案。只有 batch-16 运行日志出�
 | Cosmos3 timestamp tolerance assertion | 10 FPS 视频配 30 Hz action timeline | 保持 30 Hz action，tolerance=`0.051s` | exploration decode probe 通过 |
 | 最后一个 action 监督静止尾帧 | camera delta 只有 32 项，loader 复制第 32 帧 | camera delta 改为 33 项并删除尾帧复制；trajectory counts 每 episode 减 1 | 真实 sample 有 `O[t+32]`，最后两帧来自不同时间戳 |
 | Cosmos3 text prompt 为空 | adapter 固定 `ai_caption=""` | 读取 LeRobot `sample["task"]`，并要求其等于 RoboTwin `full_description` | clean/mix4 五类 decode probe 均逐条比对 canonical JSON |
+| Cosmos3 bootstrap 立即退出 | job 容器没有挂载个人 `RoboTwin/description/task_instruction` 目录 | 把官方 50-task `full_description` 固定成仓库内 manifest；从 bootstrap 起持久化 stderr/stdout | 官方 50 JSON、真实 350 source prompt、bundle validator、PFS bootstrap log |
 | Cosmos2.5 torchvision 输入错误 | NumPy HWC/THWC 直接进入 Torch transform | contiguous NumPy -> Torch TCHW | `[3,33,256,320]` head video |
 | Cosmos2.5 tokenizer 尝试远端下载 | VAE/Reason1 路径未完全本地化 | 固定本地 VAE、Reason1、processor overlay | 断网/无 Hub fallback 下能加载 |
 | Hydra 报未知 dataset kwargs | 父 RoboTwin 参数残留 | 只接受并硬校验 canonical 三个值 | 错误值必须 fail loudly |

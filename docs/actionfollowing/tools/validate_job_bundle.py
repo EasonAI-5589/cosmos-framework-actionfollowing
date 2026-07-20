@@ -105,9 +105,46 @@ def main() -> None:
     expected_views = '["camhigh","camleftwrist","camrightwrist"]' if args.model == "cosmos3" else '["camhigh"]'
     require(f'"views":{expected_views}' in compact_script, f"script lacks canonical {args.model} views")
     if args.model == "cosmos3":
+        prompt_manifest_candidates = (
+            args.script.parent.parent / "assets" / "robotwin_50_full_descriptions.json",
+            Path(__file__).parent.parent / "assets" / "robotwin_50_full_descriptions.json",
+        )
+        prompt_manifest_path = next((path for path in prompt_manifest_candidates if path.is_file()), None)
+        require(
+            prompt_manifest_path is not None,
+            f"RoboTwin prompt manifest is missing; checked: {prompt_manifest_candidates}",
+        )
+        assert prompt_manifest_path is not None
+        prompt_manifest = json.loads(prompt_manifest_path.read_text())
+        require(prompt_manifest.get("schema_version") == 1, "unexpected RoboTwin prompt manifest schema")
+        require(
+            prompt_manifest.get("source_repository") == "https://github.com/RoboTwin-Platform/RoboTwin",
+            "RoboTwin prompt manifest must identify the official source repository",
+        )
+        require(
+            prompt_manifest.get("source_commit") == "c3ddfa8b97d5519efa828b075999bd0006778e5e",
+            "RoboTwin prompt manifest source commit is not pinned",
+        )
+        full_descriptions = prompt_manifest.get("full_descriptions", {})
+        require(len(full_descriptions) == 50, "RoboTwin prompt manifest must contain exactly 50 tasks")
+        require(
+            all(isinstance(value, str) and value.strip() for value in full_descriptions.values()),
+            "RoboTwin prompt manifest contains an empty full_description",
+        )
         require("future32" in name.lower(), "Cosmos3 job name must identify real future32 supervision")
         require("prompt" in name.lower(), "Cosmos3 job name must identify full-description prompting")
-        require("robotwintaskinstructionroot" in lower_compact_script, "RoboTwin task-instruction root is missing")
+        require(
+            "robotwinfulldescriptionmanifest" in lower_compact_script,
+            "RoboTwin full_description manifest is missing",
+        )
+        require(
+            "bootstraplogs" in lower_compact_script and "bootstraperror" in lower_compact_script,
+            "Cosmos3 script must persist errors that occur before the main output directory is created",
+        )
+        require(
+            "__index_level_0__" in script_text and "metadata_prompt_columns" in script_text,
+            "Cosmos3 script must audit the real LeRobot v2 tasks.parquet prompt column",
+        )
         require('"timeline":"current1+future32"' in lower_compact_script, "current1+future32 audit evidence is missing")
         require(
             "len(deltatimestamps[actionfeature])==32" in lower_compact_script,
