@@ -7,7 +7,7 @@
 - Cosmos-Predict2.5 的真实 `mix4` 20 optimizer-step smoke 已在 AIHC `cce-pmm1yohj/train22` 完成并仍然有效。
 - Cosmos3 历史 smoke `job-s4qigpgr3lky` 虽然完成 20 steps、finite loss 和 checkpoint，但复查发现它把第 32 个 observation 复制成尾帧且 text prompt 为空；该结果只能作为历史 bring-up 证据，不能再作为 canonical smoke gate。
 - Cosmos3 loader 已改为读取真实 `O[t]..O[t+32]`，并使用 LeRobot task metadata 中的 RoboTwin `full_description`；新 20-step smoke bundle 已准备，尚未提交/运行。
-- 当前成功 job 是 `mix4` smoke；其中 clean 与四类 enhanced 均做过真实 decode/audit，但没有另起 clean-only 20-step job。
+- 当前保留的训练记录都是 `mix4` smoke，没有另起 clean-only 20-step job；Cosmos3 旧记录已失效，修复版仍需重新做 clean 与四类 enhanced 的真实 decode/audit。
 - Cosmos3 使用三视角；Cosmos-Predict2.5 使用原生 action-conditioned 单视角 head。
 - `clean` 与 `mix4` 的 40k 训练配置已经写好，但当前没有 Cosmos3/Cosmos-Predict2.5 40k AIHC job。
 - 因此当前状态是“Cosmos3 bug 已修到本地代码并进入重新验证，Cosmos2.5 smoke gate 通过”，不是“完整 baseline 复现完成”。任何 Cosmos3 40k 都必须等待修复版 smoke 通过。
