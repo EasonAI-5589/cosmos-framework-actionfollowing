@@ -23,7 +23,7 @@
 | Batch | global 16; global 8 only on detected CUDA OOM |
 | Cosmos3 views | `cam_high`, `cam_left_wrist`, `cam_right_wrist` |
 | Predict2.5 views | `cam_high` only |
-| Pool / queue | `cce-pmm1yohj` / `train22` |
+| Pool / queue | `cce-pmm1yohj` / `train` for the 2026-07-21 repair smoke; historical runs used `train22` |
 | Hardware | 8x A800 80GB, CPU 123, memory 970 Gi, RDMA 1, shm 120 Gi |
 
 The base 32-action chunk counts used by Predict2.5 are `clean=475122`, `perturbed=250000`, `random_feasible=1350000`, `counterfactual_replay=474645`, `exploration=121071`.
@@ -36,11 +36,11 @@ Cosmos3 additionally requires a genuine next observation for every action. Its `
 |---|---|
 | Local workspace | `/Users/user/HumanoidX-DEV/ACWM` |
 | Local launch bundle | `aihc/cosmos_baseline_smoke_20260718` |
-| Remote Cosmos3 repair bundle | `/mnt/gyc/Action-Following/jobs/20260720` |
+| Remote Cosmos3 repair bundle | `/mnt/gyc/Action-Following/jobs/20260721` |
 | RoboTwin full descriptions | `/mnt/dataset/csx_workspace/Ideas/AF3/code/RoboTwin/description/task_instruction` (or the mounted sixiangchen mirror) |
 | Cosmos3 repo | `/mnt/gyc/cosmos-framework` |
 | Predict2.5 repo | `/mnt/gyc/cosmos-predict2.5` |
-| Canonical data | `/mnt/dataset/sixiangchen_workspace/Ideas/data/ActionFollowingData_LeRobot_Rot6D/train` |
+| Motus-aligned canonical data | `/mnt/dataset/public_data/cscsx_projects/data/ActionFollowingData_LeRobot_Rot6D_nosymlink/train` |
 | Persistent output | `/mnt/gyc_ckp/Action-Following/outputs` |
 | Cosmos3 DCP | `/mnt/gyc_ckp/models/Cosmos3-Nano-DCP-411f42a8fdfb` |
 | Cosmos3 VAE | `/mnt/public_ckp/cosmos3-cache/wan22_vae/Wan2.2_VAE.pth` |
@@ -62,7 +62,7 @@ AIHC containers mount public storage at `/mnt/dataset/public_data`; startup scri
 
    ```bash
    /root/.agents/skills/aihccli/scripts/aihc-agent.sh job create \
-     -p cce-pmm1yohj -q train22 -f <job.json>
+     -p cce-pmm1yohj -q train -f <job.json>
    ```
 
 7. Inspect status/pods/logs without stopping prior jobs.
@@ -99,7 +99,7 @@ AIHC containers mount public storage at `/mnt/dataset/public_data`; startup scri
 | `tqdm._lock` missing | Nested concurrent metadata loaders race on lazy lock | Call `tqdm.get_lock()` before the outer thread pool |
 | Hydra experiment missing | New Cosmos3 experiment module not imported | Add explicit import and run structured TOML dryrun |
 | Qwen vocab path is `None` | Offline model ID resolves to incomplete cache | Point to Cosmos3-Nano local `text_tokenizer`; assert vocab 151643 |
-| Enhanced video is `FileNotFound` although the split entry exists | Train-split MP4 is an absolute symlink to the absent `/mnt/dataset/csx_workspace/Ideas/data` prefix | Resolve only broken symlink targets through `AFD_VIDEO_SYMLINK_PREFIX_REMAP=/mnt/dataset/csx_workspace/Ideas/data=/mnt/dataset/sixiangchen_workspace/Ideas/data`; preserve the split parquet/actions/counts |
+| Enhanced video is `FileNotFound` although the split entry exists | A symlink-backed mirror was selected instead of the Motus training asset | Use the exact symlink-free public-data root above; do not silently remap to another split |
 | Cosmos3 timestamp tolerance assertion on exploration video | Some enhanced MP4s are 10 FPS while the action timeline remains 30 Hz | Keep actions at 30 Hz and use `VIDEO_TIMESTAMP_TOLERANCE_S=0.051` so the nearest repeated 10 FPS frame is accepted; do not retime labels |
 | Last action supervises a frozen frame | Camera deltas contain only 32 timestamps and the loader duplicates the tail | Query 33 camera timestamps and exclude trajectory terminal starts; prove `O[t+32]` is real |
 | Cosmos3 prompt is empty | Adapter hard-codes `ai_caption=""` | Use the LeRobot task/full_description and compare every family probe with the canonical RoboTwin JSON |

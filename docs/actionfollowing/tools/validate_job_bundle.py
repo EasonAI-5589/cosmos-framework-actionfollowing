@@ -37,10 +37,7 @@ EXPECTED_COUNTS_BY_MODEL = {
     },
 }
 
-CANONICAL_DATA_ROOT = "/mnt/dataset/sixiangchen_workspace/Ideas/data/ActionFollowingData_LeRobot_Rot6D/train"
-VIDEO_SYMLINK_REMAP = (
-    "AFD_VIDEO_SYMLINK_PREFIX_REMAP=/mnt/dataset/csx_workspace/Ideas/data=/mnt/dataset/sixiangchen_workspace/Ideas/data"
-)
+CANONICAL_DATA_ROOT = "/mnt/dataset/public_data/cscsx_projects/data/ActionFollowingData_LeRobot_Rot6D_nosymlink/train"
 
 
 def require(condition: bool, message: str) -> None:
@@ -54,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--script", type=Path, required=True)
     parser.add_argument("--model", choices=("cosmos3", "cosmos25"), required=True)
     parser.add_argument("--steps", type=int, choices=(20, 40000), required=True)
-    parser.add_argument("--queue", default="train22")
+    parser.add_argument("--queue", default="train")
     return parser.parse_args()
 
 
@@ -83,17 +80,18 @@ def main() -> None:
     require(checkpoint_mount is not None, "persistent checkpoint mount is missing")
     require(checkpoint_mount.get("name") == "pfs-Zx30ll", "checkpoint mount must use pfs-Zx30ll")
     require(not checkpoint_mount.get("options", {}).get("readOnly", False), "checkpoint mount must be writable")
-    data_mount = mounts.get("/mnt/dataset/sixiangchen_workspace")
+    data_mount = mounts.get("/mnt/dataset/public_data")
     require(data_mount is not None, "canonical ActionFollowingData mount is missing")
-    require(data_mount.get("sourcePath") == "/damoxing/sixiangchen-fileset", "unexpected data mount source")
+    require(data_mount.get("sourcePath") == "/datasets", "unexpected data mount source")
     require(data_mount.get("options", {}).get("readOnly") is True, "canonical data mount must be read-only")
-    require("/mnt/dataset/public_data" in mounts, "public model-asset mount is missing")
 
     compact_script = re.sub(r"\s|_", "", script_text)
     lower_compact_script = compact_script.lower()
     compact_data_root = re.sub(r"\s|_", "", CANONICAL_DATA_ROOT)
     require(f"AFDROOT={compact_data_root}" in compact_script, "script does not use the canonical train root")
-    require(VIDEO_SYMLINK_REMAP in script_text, "broken enhanced-video symlink remap is missing")
+    require(
+        "ActionFollowingData_LeRobot_Rot6D_nosymlink" in script_text, "Motus-aligned symlink-free data root is missing"
+    )
     require('forprotocolin("clean","mix4")' in compact_script, "script must audit both clean and mix4")
     require("auditnumsamples=100000" in compact_script, "script must run a 100k sampling audit")
     require(
@@ -134,6 +132,12 @@ def main() -> None:
         require("CUDAoutofmemory" in compact_script, "batch fallback must detect CUDA OOM")
         require("OutOfMemoryError" in compact_script, "batch fallback must detect PyTorch OOM")
         require("latest_checkpoint.txt" in script_text, "smoke must verify the latest checkpoint marker")
+        require("iter_000000020" in script_text, "smoke must require the exact step-20 checkpoint")
+        require(
+            "expected exactly rank-0 optimizer steps 1..20" in script_text,
+            "smoke must require exactly 20 optimizer steps",
+        )
+        require("math.isfinite" in script_text, "smoke must require finite optimizer losses")
         require("SMOKE_RESULT.txt" in script_text, "smoke must write a result record")
         require("effective_global_batch=%s" in script_text, "result record must include effective batch")
     else:

@@ -158,6 +158,18 @@ MIX4_TARGET_RATIOS = {
     "exploration": 1.0,
 }
 
+# Frozen full-50 train counts for Cosmos3's current1+future32 windows.  These
+# deliberately differ from the base 32-action counts used by policy models:
+# every trajectory-level episode loses its terminal start because it has no
+# genuine O[t+32].
+COSMOS3_EFFECTIVE_COUNTS = {
+    "clean": 472_622,
+    "perturbed": 250_000,
+    "random_feasible": 1_345_000,
+    "counterfactual_replay": 472_145,
+    "exploration": 120_821,
+}
+
 
 def _resolve_actionfollowing_video_path(video_path: str | Path) -> Path:
     """Resolve a split video reference against the immutable full LeRobot root."""
@@ -429,6 +441,15 @@ class ActionFollowingLeRobotDataset(BaseActionLeRobotDataset):
             family_counts[self._family_by_source[ds_idx]] += int(valid_len)
         self.family_effective_counts = dict(sorted(family_counts.items()))
 
+        expected_counts = (
+            {"clean": COSMOS3_EFFECTIVE_COUNTS["clean"]} if self.protocol == "clean" else COSMOS3_EFFECTIVE_COUNTS
+        )
+        if self.family_effective_counts != expected_counts:
+            raise ValueError(
+                "ActionFollowingData effective counts do not match the frozen full-50 Cosmos3 contract: "
+                f"actual={self.family_effective_counts}, expected={expected_counts}"
+            )
+
         raw_targets = {"clean": 1.0} if self.protocol == "clean" else MIX4_TARGET_RATIOS
         absent = sorted(set(raw_targets) - set(family_counts))
         unexpected = sorted(set(family_counts) - set(raw_targets))
@@ -637,6 +658,7 @@ def get_actionfollowing_sft_dataset(
 __all__ = [
     "ACTION_DIM",
     "CAMERA_FEATURES",
+    "COSMOS3_EFFECTIVE_COUNTS",
     "MIX4_TARGET_RATIOS",
     "ROBOTWIN_50_TASKS",
     "ActionFollowingLeRobotDataset",

@@ -22,12 +22,16 @@ ensure_mount_alias /mnt/gyc_ckp /mnt/dataset/csx_ckp
 ensure_mount_alias /mnt/public_ckp /mnt/dataset/public_data
 
 REPO=/mnt/gyc/cosmos-framework
-AFD_ROOT=/mnt/dataset/sixiangchen_workspace/Ideas/data/ActionFollowingData_LeRobot_Rot6D/train
+# Use the exact symlink-free LeRobot Rot6D train root used by the Motus
+# ACWM-Motus_mix41111_40000 runs.  Cosmos keeps its own current1+future32
+# indexing on top of these shared assets.
+AFD_ROOT=/mnt/dataset/public_data/cscsx_projects/data/ActionFollowingData_LeRobot_Rot6D_nosymlink/train
 WAN_VAE_PATH=/mnt/dataset/public_data/cosmos3-cache/wan22_vae/Wan2.2_VAE.pth
 BASE_CHECKPOINT_PATH=/mnt/gyc_ckp/models/Cosmos3-Nano-DCP-411f42a8fdfb
 HF_HOME=/mnt/dataset/public_data/cosmos3-cache/huggingface
 COSMOS3_TOKENIZER_PATH="$HF_HOME/hub/models--nvidia--Cosmos3-Nano/snapshots/411f42a8fdfb8c5b2583cb8786e0938f49796eaa/text_tokenizer"
-OUT_BASE=/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260720_future32_prompt_retry1
+RUN_TAG="${AIHC_JOB_ID:-manual_$(date +%Y%m%d_%H%M%S)}"
+OUT_BASE="/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_${RUN_TAG}"
 
 for candidate in \
   /mnt/dataset/csx_workspace/Ideas/AF3/code/RoboTwin/description/task_instruction \
@@ -48,13 +52,17 @@ done
 
 export AFD_ROOT WAN_VAE_PATH BASE_CHECKPOINT_PATH HF_HOME COSMOS3_TOKENIZER_PATH OUT_BASE
 export ROBOTWIN_TASK_INSTRUCTION_ROOT
-export AFD_VIDEO_FALLBACK_ROOTS=/mnt/dataset/csx_workspace/Ideas/data/ActionFollowingData_LeRobot_Rot6D
-export AFD_VIDEO_SYMLINK_PREFIX_REMAP=/mnt/dataset/csx_workspace/Ideas/data=/mnt/dataset/sixiangchen_workspace/Ideas/data
+unset AFD_VIDEO_FALLBACK_ROOTS AFD_VIDEO_SYMLINK_PREFIX_REMAP
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
 export LD_LIBRARY_PATH=
 export PYTHONPATH="$REPO"
 export PATH="$REPO/.venv/bin:$PATH"
 export OMP_NUM_THREADS=8
+
+if [[ -e "$OUT_BASE" ]] && [[ -n "$(find "$OUT_BASE" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
+  die "refusing to reuse non-empty smoke output: $OUT_BASE"
+fi
+mkdir -p "$OUT_BASE"
 
 echo "[PRECHECK] job=${AIHC_JOB_NAME:-UNKNOWN} gpus=${TRAINING_CARD_SIZE:-UNKNOWN}"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader
@@ -91,17 +99,20 @@ fi
 
 echo "[DATA] auditing clean and mix4 on the real AIHC mount"
 cd "$REPO"
-"$REPO/.venv/bin/python" - <<'PY'
+"$REPO/.venv/bin/python" - <<'PY' | tee "$OUT_BASE/DATA_AUDIT.log"
 import gc
 import json
 import os
+from collections import defaultdict
 from pathlib import Path
 
+import pyarrow.parquet as pq
 import torch
 
 from cosmos_framework.data.generator.action.datasets.actionfollowing_lerobot_dataset import (
     ACTION_FEATURE,
     CAMERA_FEATURES,
+    ROBOTWIN_50_TASKS,
     ActionFollowingLeRobotDataset,
 )
 
@@ -131,6 +142,23 @@ for protocol in ("clean", "mix4"):
     wanted = {"clean": expected["clean"]} if protocol == "clean" else expected
     assert dataset.family_effective_counts == wanted, (dataset.family_effective_counts, wanted)
     assert len(set(dataset._task_by_source)) == 50
+    family_tasks = defaultdict(set)
+    metadata_prompt_count = 0
+    for source_root, family, task_name in dataset._source_specs:
+        family_tasks[family].add(task_name)
+        rows = pq.read_table(Path(source_root) / "meta" / "tasks.parquet").to_pylist()
+        assert len(rows) == 1, (source_root, len(rows))
+        metadata_prompt = rows[0].get("task")
+        assert isinstance(metadata_prompt, str) and metadata_prompt.strip(), (source_root, rows[0])
+        assert metadata_prompt.strip() == canonical_full_description(task_name), (
+            source_root,
+            metadata_prompt,
+            canonical_full_description(task_name),
+        )
+        metadata_prompt_count += 1
+    expected_tasks = set(ROBOTWIN_50_TASKS)
+    assert all(tasks == expected_tasks for tasks in family_tasks.values()), family_tasks
+    assert set(family_tasks) == set(wanted), family_tasks
     delta_timestamps = dataset._dataset_build_args[0]["delta_timestamps"]
     assert len(delta_timestamps[ACTION_FEATURE]) == 32
     assert all(len(delta_timestamps[feature]) == 33 for feature in CAMERA_FEATURES)
@@ -146,6 +174,8 @@ for protocol in ("clean", "mix4"):
     print(json.dumps({
         "protocol": protocol,
         "tasks": len(set(dataset._task_by_source)),
+        "family_task_counts": {family: len(tasks) for family, tasks in sorted(family_tasks.items())},
+        "metadata_prompt_count": metadata_prompt_count,
         "effective_counts": dataset.family_effective_counts,
         "audit": audit,
         "action_shape": list(item["action"].shape),
@@ -184,12 +214,21 @@ for protocol in ("clean", "mix4"):
 PY
 
 echo "[DRYRUN] validating Cosmos3 structured TOML"
+DRYRUN_JOB_NAME="cosmos3_nano_afd_full50_mix4_rot6d20_a32_future32_prompt_bs16_20step_dryrun"
 AFD_PROTOCOL=mix4 \
 BASE_CHECKPOINT_PATH="$BASE_CHECKPOINT_PATH" \
 WAN_VAE_PATH="$WAN_VAE_PATH" \
 "$REPO/.venv/bin/python" -m cosmos_framework.scripts.train \
   --sft-toml=examples/toml/sft_config/actionfollowing_full50_mix4.toml \
-  --dryrun
+  --dryrun \
+  -- \
+  trainer.max_iter=20 \
+  trainer.logging_iter=1 \
+  checkpoint.save_iter=20 \
+  dataloader_train.max_samples_per_batch=2 \
+  scheduler.cycle_lengths='[20]' \
+  scheduler.warm_up_steps='[1]' \
+  job.name="$DRYRUN_JOB_NAME"
 
 run_train() {
   local per_rank_batch="$1"
@@ -227,7 +266,46 @@ fi
 LATEST_FILE="$(find "$TRAIN_OUT" -name latest_checkpoint.txt -type f -print -quit)"
 [[ -n "$LATEST_FILE" ]] || die "20-step run completed without latest_checkpoint.txt"
 LATEST_ITER="$(cat "$LATEST_FILE")"
+[[ "$LATEST_ITER" == "iter_000000020" ]] || die "expected latest checkpoint iter_000000020, got $LATEST_ITER"
 [[ -d "$(dirname "$LATEST_FILE")/$LATEST_ITER" ]] || die "latest checkpoint directory missing"
+[[ -f "$(dirname "$LATEST_FILE")/$LATEST_ITER/model/.metadata" ]] || die "model DCP metadata missing"
+[[ -f "$(dirname "$LATEST_FILE")/$LATEST_ITER/trainer/.metadata" ]] || die "trainer DCP metadata missing"
 
-printf 'status=passed\nmodel=Cosmos3-Nano\nprotocol=mix4\nsteps=20\neffective_global_batch=%s\ncheckpoint=%s\n' \
-  "$EFFECTIVE_BATCH" "$(dirname "$LATEST_FILE")/$LATEST_ITER" | tee "$OUT_BASE/SMOKE_RESULT.txt"
+TRAIN_LOG="$TRAIN_OUT/logs/actionfollowing_full50_mix4_sft.log"
+[[ -f "$TRAIN_LOG" ]] || die "persistent training log missing: $TRAIN_LOG"
+TRAIN_AUDIT="$OUT_BASE/TRAIN_AUDIT.json"
+"$REPO/.venv/bin/python" - "$TRAIN_LOG" "$TRAIN_AUDIT" <<'PY'
+import json
+import math
+import re
+import sys
+from pathlib import Path
+
+log_path = Path(sys.argv[1])
+audit_path = Path(sys.argv[2])
+pattern = re.compile(r"\[RANK 0\] Iteration (\d+):.*?\| Loss: ([^ |]+)")
+loss_by_step = {}
+for step_text, loss_text in pattern.findall(log_path.read_text(errors="replace")):
+    loss_by_step[int(step_text)] = float(loss_text)
+
+expected_steps = list(range(1, 21))
+if sorted(loss_by_step) != expected_steps:
+    raise SystemExit(f"expected exactly rank-0 optimizer steps 1..20, got {sorted(loss_by_step)}")
+if not all(math.isfinite(value) for value in loss_by_step.values()):
+    raise SystemExit(f"non-finite rank-0 loss: {loss_by_step}")
+
+audit = {
+    "status": "passed",
+    "optimizer_steps": expected_steps,
+    "finite_losses": True,
+    "final_loss": loss_by_step[20],
+    "training_log": str(log_path),
+}
+audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n")
+print(json.dumps(audit, sort_keys=True))
+PY
+FINAL_LOSS="$("$REPO/.venv/bin/python" -c 'import json,sys; print(json.load(open(sys.argv[1]))["final_loss"])' "$TRAIN_AUDIT")"
+
+printf 'status=passed\nmodel=Cosmos3-Nano\nprotocol=mix4\ndata_root=%s\ntimeline=current1+future32\noptimizer_steps=20\neffective_global_batch=%s\nfinal_loss=%s\ncheckpoint=%s\n' \
+  "$AFD_ROOT" "$EFFECTIVE_BATCH" "$FINAL_LOSS" "$(dirname "$LATEST_FILE")/$LATEST_ITER" | \
+  tee "$OUT_BASE/SMOKE_RESULT.txt"

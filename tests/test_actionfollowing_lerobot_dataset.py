@@ -5,6 +5,7 @@ from cosmos_framework.data.generator.action.datasets.actionfollowing_lerobot_dat
     ACTION_DIM,
     ACTION_FEATURE,
     CAMERA_FEATURES,
+    COSMOS3_EFFECTIVE_COUNTS,
     ROBOTWIN_50_TASKS,
     VIDEO_TIMESTAMP_TOLERANCE_S,
     ActionFollowingLeRobotDataset,
@@ -104,13 +105,7 @@ def test_getitem_keeps_real_future32_and_uses_full_description() -> None:
 
 
 def test_mix4_sampling_audit_matches_protocol() -> None:
-    counts = {
-        "clean": 472622,
-        "perturbed": 250000,
-        "random_feasible": 1345000,
-        "counterfactual_replay": 472145,
-        "exploration": 120821,
-    }
+    counts = COSMOS3_EFFECTIVE_COUNTS
     dataset = ActionFollowingLeRobotDataset.__new__(ActionFollowingLeRobotDataset)
     dataset.protocol = "mix4"
     dataset.seed = 20260717
@@ -136,6 +131,23 @@ def test_mix4_sampling_audit_matches_protocol() -> None:
         "counterfactual_replay": 0.125,
         "exploration": 0.125,
     }
+
+
+def test_wrong_effective_counts_fail_before_training() -> None:
+    counts = {**COSMOS3_EFFECTIVE_COUNTS, "clean": COSMOS3_EFFECTIVE_COUNTS["clean"] + 1}
+    dataset = ActionFollowingLeRobotDataset.__new__(ActionFollowingLeRobotDataset)
+    dataset.protocol = "mix4"
+    dataset._family_by_source = list(counts)
+    dataset._episode_records = [
+        (source_index, 0, count, source_index) for source_index, count in enumerate(counts.values())
+    ]
+    dataset._sample_mass_by_family = {}
+    dataset._record_mass_cum_ends = []
+    dataset._record_families = []
+    dataset._total_sampling_mass = 0.0
+
+    with pytest.raises(ValueError, match="effective counts"):
+        dataset._build_protocol_sampling_index()
 
 
 def test_split_video_path_falls_back_to_full_root(tmp_path, monkeypatch) -> None:

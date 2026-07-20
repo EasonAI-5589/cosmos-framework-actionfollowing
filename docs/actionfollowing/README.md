@@ -6,7 +6,7 @@
 
 - Cosmos-Predict2.5 的真实 `mix4` 20 optimizer-step smoke 已在 AIHC `cce-pmm1yohj/train22` 完成并仍然有效。
 - Cosmos3 历史 smoke `job-s4qigpgr3lky` 虽然完成 20 steps、finite loss 和 checkpoint，但复查发现它把第 32 个 observation 复制成尾帧且 text prompt 为空；该结果只能作为历史 bring-up 证据，不能再作为 canonical smoke gate。
-- Cosmos3 loader 已改为读取真实 `O[t]..O[t+32]`，并使用 LeRobot task metadata 中的 RoboTwin `full_description`；新 20-step smoke bundle 已准备，尚未提交/运行。
+- Cosmos3 loader 已改为读取真实 `O[t]..O[t+32]`，并使用 LeRobot task metadata 中的 RoboTwin `full_description`；新 20-step smoke bundle 直接读取 Motus mix41111 使用的 symlink-free Rot6D20 train root，并对五类 Cosmos3 counts 做硬断言。
 - 当前保留的训练记录都是 `mix4` smoke，没有另起 clean-only 20-step job；Cosmos3 旧记录已失效，修复版仍需重新做 clean 与四类 enhanced 的真实 decode/audit。
 - Cosmos3 使用三视角；Cosmos-Predict2.5 使用原生 action-conditioned 单视角 head。
 - `clean` 与 `mix4` 的 40k 训练配置已经写好，但当前没有 Cosmos3/Cosmos-Predict2.5 40k AIHC job。
@@ -40,7 +40,7 @@
 | 正式 steps | 40,000 optimizer steps |
 | Cosmos3 视角 | `cam_high`、`cam_left_wrist`、`cam_right_wrist` |
 | Cosmos2.5 视角 | `cam_high` |
-| AIHC | pool `cce-pmm1yohj`，queue `train22`，8x A800 80GB |
+| AIHC | pool `cce-pmm1yohj`；本轮修复 smoke 按用户要求使用 queue `train`，历史 smoke 在 `train22`；8x A800 80GB |
 
 基础 32-action chunk counts（Cosmos-Predict2.5 保持此口径）：
 
@@ -308,11 +308,17 @@ P(f) = N[f] * per_chunk_mass[f] / sum_i(N[i] * per_chunk_mass[i])
 
 ## 数据与模型资产
 
-canonical 数据：
+本轮 Cosmos3 与 Motus 数据端对齐使用同一份 symlink-free train root：
 
 ```text
-/mnt/dataset/sixiangchen_workspace/Ideas/data/ActionFollowingData_LeRobot_Rot6D/train
+AIHC container:
+/mnt/dataset/public_data/cscsx_projects/data/ActionFollowingData_LeRobot_Rot6D_nosymlink/train
+
+login node equivalent:
+/mnt/public_ckp/cscsx_projects/data/ActionFollowingData_LeRobot_Rot6D_nosymlink/train
 ```
+
+“同一份数据”只共享数据资产、50 tasks、Rot6D20 和 mix41111 目标比例。Cosmos3 仍使用自己的 forward-dynamics 口径：`A[t]..A[t+31]` 对应 33 个真实 observation，并使用 Cosmos3-specific effective counts，不能照搬 Motus 的 48-action loader。
 
 AIHC 容器中公共盘挂载后，脚本会校验 `/mnt/public_ckp` alias。主要模型资产：
 
@@ -429,14 +435,14 @@ checkpoint=.../checkpoints/iter_000000020
 修复版 20-step smoke bundle：
 
 ```text
-AIHC name: ACWM_cosmos3_full50_mix4_rot6d20_future32_prompt_bs16_20step_smoke_train22_retry1_20260720
+AIHC name: ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_train_20260721
 script: docs/actionfollowing/aihc/run_cosmos3_mix4_20step_smoke.sh
 job JSON: docs/actionfollowing/aihc/cosmos3_job_20step_smoke.json
-planned output: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260720_future32_prompt_retry1
+planned output: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_<job-id>
 submission: not submitted
 ```
 
-该 bundle 会在训练前强制检查 32 action timestamps、33 camera timestamps、五类新 counts，以及每个 probe 的 `ai_caption == RoboTwin full_description`。
+该 bundle 会在训练前强制检查 32 action timestamps、33 camera timestamps、五类新 counts、五类各 50 tasks、全部 350 个 LeRobot task metadata 与 RoboTwin `full_description` 一致，并对每个 family 做真实 decode probe。训练结束后还会硬检查 rank-0 optimizer steps 恰好为 1..20、loss 全部 finite、`iter_000000020` DCP 与 latest marker，之后才写 `SMOKE_RESULT.txt`。
 
 ### Cosmos-Predict2.5 smoke 证据链
 
