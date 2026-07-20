@@ -9,6 +9,7 @@
 - Cosmos3 loader 已改为读取真实 `O[t]..O[t+32]`，并使用 LeRobot task metadata 中的 RoboTwin `full_description`；新 20-step smoke bundle 直接读取 Motus mix41111 使用的 symlink-free Rot6D20 train root，并对五类 Cosmos3 counts 做硬断言。登录节点预检已真实 decode clean 和 mix4 五类数据，50 tasks、`[32,20]`、三视角 33 帧及 100k 采样比例均通过。
 - 首次 `train` 提交 `job-ploabmfspj7o` 已自然失败。第一因果来自 node log：`[FATAL] RoboTwin task_instruction root missing`；它只运行到 bootstrap，没有进入数据 decode 或 optimizer step。修复版不再依赖未挂载的个人 RoboTwin 工作区，而是使用仓库内、固定到 RoboTwin 官方 commit `c3ddfa8b97d5519efa828b075999bd0006778e5e` 的 50-task `full_description` manifest。
 - 已逐项比较 manifest 与官方 50 个 JSON，并在 Motus symlink-free train root 上检查全部 350 个 source：clean / perturbed / random feasible / counterfactual replay / exploration 均覆盖 50 tasks，文本全部一致。真实 LeRobot v2 `tasks.parquet` 把文本保存在 `__index_level_0__`，loader 会恢复为 task 文本；smoke 现已显式审计并记录该列。
+- manifest/bootstrap 修复版 20-step smoke 已提交到 `cce-pmm1yohj/train`：`job-3bxehdg8flpj`。首次查询为 `Created`、`0 pods`；这只证明控制面接收，不代表已经开始训练。
 - Cosmos3 使用三视角；Cosmos-Predict2.5 使用原生 action-conditioned 单视角 head。
 - `clean` 与 `mix4` 的 40k 训练配置已经写好，但当前没有 Cosmos3/Cosmos-Predict2.5 40k AIHC job。
 - 因此当前状态是“Cosmos3 bug 已修到本地代码并进入重新验证，Cosmos2.5 smoke gate 通过”，不是“完整 baseline 复现完成”。任何 Cosmos3 40k 都必须等待修复版 smoke 通过。
@@ -18,7 +19,7 @@
 | 模型 | 协议 | 代码 | 真实数据检查 | 20-step smoke | 40k job | 当前结论 |
 |---|---|---|---|---|---|---|
 | Cosmos3-Nano | `clean` | 修复已实现，unit tests/ruff 通过 | 真实 clean decode、50 tasks、Rot6D20 登录节点预检通过 | 未单独启动 clean-only smoke | 未创建 | 不得启动 40k |
-| Cosmos3-Nano | `mix4` | 修复已实现，12 unit tests/ruff/bundle validator 通过 | 五类 counts、50 tasks、`[32,20]`、33 帧三视角、官方 full_description 与 100k sampler audit 预检通过 | `job-ploabmfspj7o` 在 prompt 路径 bootstrap 阶段自然失败；manifest 修复版待重提 | 未创建 | 等待新的真实 20-step smoke gate |
+| Cosmos3-Nano | `mix4` | 修复已实现，12 unit tests/ruff/bundle validator 通过 | 五类 counts、50 tasks、`[32,20]`、33 帧三视角、官方 full_description 与 100k sampler audit 预检通过 | retry2 `job-3bxehdg8flpj` 已提交，首次查询 `Created`、`0 pods` | 未创建 | 等待新的真实 20-step smoke gate |
 | Cosmos-Predict2.5-2B | `clean` | 已实现 | clean root、50 tasks、Rot6D20 已验证 | 未单独启动 clean-only smoke | 未创建 | 配置可审查，尚未形成训练结果 |
 | Cosmos-Predict2.5-2B | `mix4` | 已实现 | 五类数据、counts、10000 次 sampler audit、单视角已验证 | `job-c469z4urkofj` 成功 | 未创建 | smoke gate 通过 |
 
@@ -458,6 +459,17 @@ console: https://console.bce.baidu.com/aihc/#/job/detail/job-ploabmfspj7o?poolId
 
 ```text
 /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/bootstrap_logs/<job-id>.log
+```
+
+manifest/bootstrap 修复版重提记录：
+
+```text
+AIHC name: ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_retry2_20260721
+job ID: job-3bxehdg8flpj
+queue/initial status: cce-pmm1yohj/train; Created; 0 pods (2026-07-21 03:06:43 +08)
+expected output: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-3bxehdg8flpj
+bootstrap log: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/bootstrap_logs/job-3bxehdg8flpj.log
+console: https://console.bce.baidu.com/aihc/#/job/detail/job-3bxehdg8flpj?poolId=cce-pmm1yohj
 ```
 
 训练前会强制检查 32 action timestamps、33 camera timestamps、五类新 counts、五类各 50 tasks、全部 350 个 LeRobot task metadata 与固定版本的 RoboTwin 官方 `full_description` 一致，并记录命中的 parquet prompt 列，再对每个 family 做真实 decode probe。训练结束后还会硬检查 rank-0 optimizer steps 恰好为 1..20、loss 全部 finite、`iter_000000020` DCP 与 latest marker，之后才写 `SMOKE_RESULT.txt`。
