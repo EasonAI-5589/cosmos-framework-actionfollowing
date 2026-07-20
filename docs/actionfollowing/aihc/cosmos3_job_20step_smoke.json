@@ -1,5 +1,5 @@
 {
-  "name": "ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_retry2_20260721",
+  "name": "ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_retry3_20260721",
   "queue": "train",
   "jobFramework": "pytorch",
   "jobSpec": {
@@ -15,7 +15,7 @@
       {"name": "sharedMemory", "quantity": 0}
     ],
     "envs": [
-      {"name": "AIHC_JOB_NAME", "value": "ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_retry2_20260721"},
+      {"name": "AIHC_JOB_NAME", "value": "ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_retry3_20260721"},
       {"name": "LOG_COLLECTION", "value": "true"},
       {"name": "NCCL_DEBUG", "value": "INFO"},
       {"name": "NCCL_IB_DISABLE", "value": "0"},

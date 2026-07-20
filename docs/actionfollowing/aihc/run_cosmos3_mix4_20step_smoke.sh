@@ -39,6 +39,10 @@ BASE_CHECKPOINT_PATH=/mnt/gyc_ckp/models/Cosmos3-Nano-DCP-411f42a8fdfb
 HF_HOME=/mnt/dataset/public_data/cosmos3-cache/huggingface
 COSMOS3_TOKENIZER_PATH="$HF_HOME/hub/models--nvidia--Cosmos3-Nano/snapshots/411f42a8fdfb8c5b2583cb8786e0938f49796eaa/text_tokenizer"
 OUT_BASE="/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_${RUN_TAG}"
+RUNTIME_CACHE="$OUT_BASE/runtime_cache"
+HF_DATASETS_CACHE="$RUNTIME_CACHE/huggingface/datasets"
+XDG_CACHE_HOME="$RUNTIME_CACHE/xdg"
+TMPDIR="$RUNTIME_CACHE/tmp"
 ROBOTWIN_FULL_DESCRIPTION_MANIFEST="$REPO/docs/actionfollowing/assets/robotwin_50_full_descriptions.json"
 
 [[ -x "$REPO/.venv/bin/python" ]] || die "Cosmos3 venv missing"
@@ -51,6 +55,7 @@ ROBOTWIN_FULL_DESCRIPTION_MANIFEST="$REPO/docs/actionfollowing/assets/robotwin_5
 [[ -f "$AFD_ROOT/exploration/tasks/turn_switch/meta/info.json" ]] || die "mix4 exploration data missing"
 
 export AFD_ROOT WAN_VAE_PATH BASE_CHECKPOINT_PATH HF_HOME COSMOS3_TOKENIZER_PATH OUT_BASE
+export RUNTIME_CACHE HF_DATASETS_CACHE XDG_CACHE_HOME TMPDIR
 export ROBOTWIN_FULL_DESCRIPTION_MANIFEST
 unset AFD_VIDEO_FALLBACK_ROOTS AFD_VIDEO_SYMLINK_PREFIX_REMAP
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
@@ -63,6 +68,9 @@ if [[ -e "$OUT_BASE" ]] && [[ -n "$(find "$OUT_BASE" -mindepth 1 -maxdepth 1 -pr
   die "refusing to reuse non-empty smoke output: $OUT_BASE"
 fi
 mkdir -p "$OUT_BASE"
+mkdir -p "$HF_DATASETS_CACHE" "$XDG_CACHE_HOME" "$TMPDIR"
+[[ -w "$HF_DATASETS_CACHE" ]] || die "Hugging Face datasets cache is not writable: $HF_DATASETS_CACHE"
+echo "[CACHE] hf_home=$HF_HOME datasets_cache=$HF_DATASETS_CACHE tmpdir=$TMPDIR"
 
 echo "[PRECHECK] job=${AIHC_JOB_NAME:-UNKNOWN} gpus=${TRAINING_CARD_SIZE:-UNKNOWN}"
 nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader

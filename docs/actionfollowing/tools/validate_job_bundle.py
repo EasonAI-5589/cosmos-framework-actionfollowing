@@ -142,6 +142,14 @@ def main() -> None:
             "Cosmos3 script must persist errors that occur before the main output directory is created",
         )
         require(
+            'hfdatasetscache="$runtimecache/huggingface/datasets"' in lower_compact_script,
+            "Cosmos3 script must redirect the Hugging Face datasets cache to the writable output mount",
+        )
+        require(
+            '[[ -w "$HF_DATASETS_CACHE" ]]' in script_text,
+            "Cosmos3 script must verify that its datasets cache is writable before data audit",
+        )
+        require(
             "__index_level_0__" in script_text and "metadata_prompt_columns" in script_text,
             "Cosmos3 script must audit the real LeRobot v2 tasks.parquet prompt column",
         )
