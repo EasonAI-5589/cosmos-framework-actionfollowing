@@ -5,21 +5,22 @@
 ## 当前结论
 
 - Cosmos-Predict2.5 的真实 `mix4` 20 optimizer-step smoke 已在 AIHC `cce-pmm1yohj/train22` 完成并仍然有效。
-- Cosmos3 历史 smoke `job-s4qigpgr3lky` 虽然完成 20 steps、finite loss 和 checkpoint，但复查发现它把第 32 个 observation 复制成尾帧且 text prompt 为空；该结果只能作为历史 bring-up 证据，不能再作为 canonical smoke gate。
-- Cosmos3 loader 已改为读取真实 `O[t]..O[t+32]`，并使用 LeRobot task metadata 中的 RoboTwin `full_description`；新 20-step smoke bundle 直接读取 Motus mix41111 使用的 symlink-free Rot6D20 train root，并对五类 Cosmos3 counts 做硬断言。登录节点预检已真实 decode clean 和 mix4 五类数据，50 tasks、`[32,20]`、三视角 33 帧及 100k 采样比例均通过。
+- Cosmos3 修复版真实 `mix4` 20 optimizer-step smoke `job-12x2lgpx0a6p` 已于 2026-07-21 在 AIHC `cce-pmm1yohj/train` 完成并通过 canonical gate：global batch 16、20/20 steps、finite rank-0 final loss `0.1316`、137G DCP `iter_000000020`、latest marker、`DATA_AUDIT.log`、`TRAIN_AUDIT.json` 和 `SMOKE_RESULT.txt` 均已核验。
+- Cosmos3 loader 已改为读取真实 `O[t]..O[t+32]`，并使用 LeRobot task metadata 中的 RoboTwin `full_description`；成功 smoke 直接读取 Motus mix41111 使用的 symlink-free Rot6D20 train root。真实审计证明五类各覆盖 50 tasks、action `[32,20]`、三视角 33 帧，并对五类各完成 decode probe；100k sampler 的观测比例为 clean `0.49995`、四类 enhanced 约 `0.125`，最大绝对误差 `5e-5`。
+- Cosmos3 历史 smoke `job-s4qigpgr3lky` 虽然完成 20 steps、finite loss 和 checkpoint，但复查发现它把第 32 个 observation 复制成尾帧且 text prompt 为空；该结果仍只能作为历史 bring-up 证据，不能作为 canonical smoke gate 或修复版续训起点。
 - 首次 `train` 提交 `job-ploabmfspj7o` 已自然失败。第一因果来自 node log：`[FATAL] RoboTwin task_instruction root missing`；它只运行到 bootstrap，没有进入数据 decode 或 optimizer step。修复版不再依赖未挂载的个人 RoboTwin 工作区，而是使用仓库内、固定到 RoboTwin 官方 commit `c3ddfa8b97d5519efa828b075999bd0006778e5e` 的 50-task `full_description` manifest。
 - 已逐项比较 manifest 与官方 50 个 JSON，并在 Motus symlink-free train root 上检查全部 350 个 source：clean / perturbed / random feasible / counterfactual replay / exploration 均覆盖 50 tasks，文本全部一致。真实 LeRobot v2 `tasks.parquet` 把文本保存在 `__index_level_0__`，loader 会恢复为 task 文本；smoke 现已显式审计并记录该列。
-- manifest/bootstrap 修复版 20-step smoke 已提交到 `cce-pmm1yohj/train`：`job-3bxehdg8flpj`。首次查询为 `Created`、`0 pods`；这只证明控制面接收，不代表已经开始训练。
+- manifest/bootstrap retry2 `job-3bxehdg8flpj` 因共享 Hugging Face datasets cache 只读而自然失败；writable-cache retry3 `job-12x2lgpx0a6p` 已完成全部真实数据审计和 20-step 训练，成为当前 Cosmos3 canonical smoke gate。
 - Cosmos3 使用三视角；Cosmos-Predict2.5 使用原生 action-conditioned 单视角 head。
 - `clean` 与 `mix4` 的 40k 训练配置已经写好，但当前没有 Cosmos3/Cosmos-Predict2.5 40k AIHC job。
-- 因此当前状态是“Cosmos3 bug 已修到本地代码并进入重新验证，Cosmos2.5 smoke gate 通过”，不是“完整 baseline 复现完成”。任何 Cosmos3 40k 都必须等待修复版 smoke 通过。
+- 因此当前状态是“Cosmos3 与 Cosmos2.5 的 `mix4` 20-step smoke gate 均通过”，不是“完整 baseline 复现完成”。当前没有任何 40k AIHC job；正式 `clean`/`mix4` 40k 仍需重新展示资源与输出路径并取得明确启动授权。
 
 ### 状态矩阵
 
 | 模型 | 协议 | 代码 | 真实数据检查 | 20-step smoke | 40k job | 当前结论 |
 |---|---|---|---|---|---|---|
 | Cosmos3-Nano | `clean` | 修复已实现，unit tests/ruff 通过 | 真实 clean decode、50 tasks、Rot6D20 登录节点预检通过 | 未单独启动 clean-only smoke | 未创建 | 不得启动 40k |
-| Cosmos3-Nano | `mix4` | 修复已实现，12 unit tests/ruff/bundle validator 通过 | 五类 counts、50 tasks、`[32,20]`、33 帧三视角、官方 full_description 与 100k sampler audit 预检通过 | retry2 `job-3bxehdg8flpj` 已提交，首次查询 `Created`、`0 pods` | 未创建 | 等待新的真实 20-step smoke gate |
+| Cosmos3-Nano | `mix4` | 修复已实现，12 unit tests/ruff/bundle validator 通过 | 五类真实 decode、50 tasks、`[32,20]`、33 帧三视角、官方 full_description 与 100k sampler audit 通过 | `job-12x2lgpx0a6p` 成功，20/20 steps，batch 16，loss `0.1316` | 未创建 | canonical smoke gate 通过 |
 | Cosmos-Predict2.5-2B | `clean` | 已实现 | clean root、50 tasks、Rot6D20 已验证 | 未单独启动 clean-only smoke | 未创建 | 配置可审查，尚未形成训练结果 |
 | Cosmos-Predict2.5-2B | `mix4` | 已实现 | 五类数据、counts、10000 次 sampler audit、单视角已验证 | `job-c469z4urkofj` 成功 | 未创建 | smoke gate 通过 |
 
@@ -351,17 +352,19 @@ Cosmos2.5 Reason1:
 
 | 模型 | AIHC job | 结果 | final loss | checkpoint |
 |---|---|---|---:|---|
+| Cosmos3-Nano | `job-12x2lgpx0a6p` | `Succeeded`，canonical `current1+future32` + full-description smoke，20/20 steps，batch 16 | `0.1316` | 137G DCP，`iter_000000020` |
 | Cosmos3-Nano | `job-s4qigpgr3lky` | 历史 bring-up 完成，但 timeline/prompt 语义错误，canonical gate 无效 | rank-0 `0.2027` | 历史 137GB DCP，禁止作为修复版起点 |
 | Cosmos-Predict2.5-2B | `job-c469z4urkofj` | `Succeeded`，20/20 steps，batch 16 | `0.1634` | 20GB DCP，`iter_000000020` |
 
 持久化输出：
 
 ```text
+/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-12x2lgpx0a6p
 /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260718_retry12
 /mnt/gyc_ckp/Action-Following/outputs/cosmos_predict25/mix4/smoke_20260718_retry12
 ```
 
-两个历史目录均包含：
+canonical 成功目录包含以下最终 marker；旧 Cosmos3 目录中的同名 marker 仅保留为历史记录：
 
 ```text
 SMOKE_RESULT.txt                  # status=passed, protocol=mix4, steps=20, effective_global_batch=16
@@ -374,8 +377,8 @@ SMOKE_RESULT.txt                  # status=passed, protocol=mix4, steps=20, effe
 查询当前状态：
 
 ```bash
-/root/.agents/skills/aihccli/scripts/aihc-agent.sh job get job-s4qigpgr3lky \
-  -p cce-pmm1yohj -q train22 -s
+/root/.agents/skills/aihccli/scripts/aihc-agent.sh job get job-12x2lgpx0a6p \
+  -p cce-pmm1yohj -q train -s
 
 /root/.agents/skills/aihccli/scripts/aihc-agent.sh job get job-c469z4urkofj \
   -p cce-pmm1yohj -q train22 -s
@@ -492,13 +495,68 @@ writable-cache 修复版（retry3）重提记录：
 ```text
 AIHC name: ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_retry3_20260721
 job ID: job-12x2lgpx0a6p
-queue/initial status: cce-pmm1yohj/train; Created / pod Pending (2026-07-21 05:40:58 +08)
+queue/status: cce-pmm1yohj/train; initially Created / pod Pending (2026-07-21 05:40:58 +08), finally Succeeded (2026-07-21 06:11:47 +08)
 expected output: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-12x2lgpx0a6p
 bootstrap log: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/bootstrap_logs/job-12x2lgpx0a6p.log
 console: https://console.bce.baidu.com/aihc/#/job/detail/job-12x2lgpx0a6p?poolId=cce-pmm1yohj
 ```
 
 训练前会强制检查 32 action timestamps、33 camera timestamps、五类新 counts、五类各 50 tasks、全部 350 个 LeRobot task metadata 与固定版本的 RoboTwin 官方 `full_description` 一致，并记录命中的 parquet prompt 列，再对每个 family 做真实 decode probe。训练结束后还会硬检查 rank-0 optimizer steps 恰好为 1..20、loss 全部 finite、`iter_000000020` DCP 与 latest marker，之后才写 `SMOKE_RESULT.txt`。
+
+retry3 最终状态与持久化证据（2026-07-21 06:11 +08 复核）：
+
+```text
+AIHC/pod final status: Succeeded
+queue: cce-pmm1yohj/train
+data root: /mnt/dataset/public_data/cscsx_projects/data/ActionFollowingData_LeRobot_Rot6D_nosymlink/train
+
+Cosmos3 current1+future32 effective counts:
+clean=472622
+perturbed=250000
+random_feasible=1345000
+counterfactual_replay=472145
+exploration=120821
+
+family task counts: all five families = 50
+decoded action shape: [32,20]
+decoded video shape: [3,33,720,640]
+views: cam_high, cam_left_wrist, cam_right_wrist
+prompt source: RoboTwin full_description
+prompt source commit: c3ddfa8b97d5519efa828b075999bd0006778e5e
+timeline: current1+future32
+
+100k observed sampler:
+clean=0.49995
+perturbed=0.12500
+random_feasible=0.12500
+counterfactual_replay=0.12503
+exploration=0.12502
+max_abs_error=0.00005
+
+optimizer steps: exactly 1..20
+effective global batch: 16 (per-rank 2 x 8 GPUs)
+rank-0 final loss: 0.1316 (finite)
+trainer terminal message: Done with training.
+checkpoint size: 137G, 36 DCP files
+latest_checkpoint.txt: iter_000000020
+SMOKE_RESULT.txt: status=passed
+```
+
+本次成功产物：
+
+```text
+DATA_AUDIT.log:
+/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-12x2lgpx0a6p/DATA_AUDIT.log
+
+TRAIN_AUDIT.json:
+/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-12x2lgpx0a6p/TRAIN_AUDIT.json
+
+SMOKE_RESULT.txt:
+/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-12x2lgpx0a6p/SMOKE_RESULT.txt
+
+checkpoint:
+/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-12x2lgpx0a6p/bs16/cosmos3_actionfollowing/forward_dynamics_mix4/cosmos3_nano_afd_full50_mix4_rot6d20_a32_future32_prompt_bs16_20step_smoke/checkpoints/iter_000000020
+```
 
 ### Cosmos-Predict2.5 smoke 证据链
 
@@ -549,7 +607,7 @@ checkpoint=.../checkpoints/iter_000000020
 
 ```bash
 for root in \
-  /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260718_retry12 \
+  /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-12x2lgpx0a6p \
   /mnt/gyc_ckp/Action-Following/outputs/cosmos_predict25/mix4/smoke_20260718_retry12; do
   echo "===== $root ====="
   cat "$root/SMOKE_RESULT.txt"
@@ -801,7 +859,7 @@ public fork、服务器运行 repo 和本地 adapter 镜像是三个不同角色
 - [ ] 确认工作目录与目标 Git/fork，不要把两个 dirty 官方 repo 的无关改动带入提交。
 - [ ] 重新核对本地 adapter 与服务器运行文件 SHA256。
 - [ ] 读取 `action_following_data_assets.md`，保持 50 tasks、Rot6D20 与 mix4 chunk-sample 采样协议。
-- [ ] 查询两条 smoke job 和持久化 marker，不能只看 scheduler `Succeeded`。
+- [x] 查询两条 mix4 smoke job 和持久化 marker，不能只看 scheduler `Succeeded`。
 - [ ] 为 `Cosmos3 clean`、`Cosmos3 mix4`、`Cosmos2.5 clean`、`Cosmos2.5 mix4` 各自生成 40k bundle。
 - [ ] 提交前展示精确资源与输出路径，并重新取得 40k launch 授权。
 - [ ] 40k 运行后分别核验 finite loss、step 40000、latest marker、checkpoint 和最终数据 audit。

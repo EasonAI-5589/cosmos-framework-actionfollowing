@@ -142,11 +142,11 @@ Do not delete persistent outputs until separately authorized.
 
 ## 8. Smoke reference
 
-Verified on 2026-07-18 in `cce-pmm1yohj/train22`:
+Canonical `mix4` smoke references verified from AIHC state, real-data audits, training logs, and persistent artifacts:
 
 | Model | Successful job | Persistent output | Final proof |
 |---|---|---|---|
-| Cosmos3-Nano | `job-s4qigpgr3lky` | `/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260718_retry12` | Historical bring-up only; invalidated by duplicated-tail and empty-prompt bugs |
+| Cosmos3-Nano | `job-12x2lgpx0a6p` (`cce-pmm1yohj/train`, 2026-07-21) | `/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-12x2lgpx0a6p` | `current1+future32`, official full-description prompt, five-family real decode, 50 tasks, Rot6D20, 3 views, batch 16, 20 steps, final loss 0.1316, 137G DCP |
 | Cosmos-Predict2.5-2B | `job-c469z4urkofj` | `/mnt/gyc_ckp/Action-Following/outputs/cosmos_predict25/mix4/smoke_20260718_retry12` | batch 16, 20 steps, final loss 0.1634, 20 GB DCP |
 
-Both historical roots contain `SMOKE_RESULT.txt` and an `iter_000000020` marker, but only the Predict2.5 result remains a valid smoke gate. Cosmos3 must pass the prepared `future32_prompt` repair smoke before any 40k launch.
+Both canonical roots contain `DATA_AUDIT.log` (or the Predict2.5 equivalent data audit), `SMOKE_RESULT.txt`, `latest_checkpoint.txt`, and a real `iter_000000020` checkpoint. This proves the repaired `mix4` smoke gates only; no 40k job has been launched, and 40k still requires explicit approval.
