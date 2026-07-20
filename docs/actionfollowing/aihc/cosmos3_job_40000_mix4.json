@@ -9,8 +9,8 @@
     "replicas": 1,
     "resources": [
       {"name": "baidu.com/a800_80g_cgpu", "quantity": 8},
-      {"name": "cpu", "quantity": 123},
-      {"name": "memory", "quantity": 975},
+      {"name": "cpu", "quantity": 122},
+      {"name": "memory", "quantity": 1960},
       {"name": "rdma/hca", "quantity": 1},
       {"name": "sharedMemory", "quantity": 0}
     ],

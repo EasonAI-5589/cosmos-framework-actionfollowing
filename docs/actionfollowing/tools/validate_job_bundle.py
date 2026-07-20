@@ -17,6 +17,12 @@ EXPECTED_RESOURCES = {
     "sharedMemory": 0,
 }
 
+QUEUE_RESOURCE_OVERRIDES = {
+    # Live train21 nodes use the c128m2048 resource template. AIHC rejects
+    # train/train22's c128m1024 quantities before creating a job.
+    "train21": {"cpu": 122, "memory": 1960},
+}
+
 EXPECTED_COUNTS_BY_MODEL = {
     # Cosmos3 needs O[t]..O[t+32] for A[t]..A[t+31], so the terminal
     # action-only start of every trajectory episode is intentionally excluded.
@@ -67,7 +73,8 @@ def main() -> None:
     require(spec.get("replicas") == 1, "replicas must be 1")
     require(spec.get("enableRDMA") is True, "RDMA must be enabled")
     resources = {item["name"]: item["quantity"] for item in spec.get("resources", [])}
-    require(resources == EXPECTED_RESOURCES, f"unexpected resources: {resources}")
+    expected_resources = EXPECTED_RESOURCES | QUEUE_RESOURCE_OVERRIDES.get(args.queue, {})
+    require(resources == expected_resources, f"unexpected resources for {args.queue}: {resources}")
 
     envs = {item["name"]: item["value"] for item in spec.get("envs", [])}
     require(envs.get("AIHC_JOB_NAME") == name, "AIHC_JOB_NAME must equal job name")
