@@ -27,7 +27,17 @@ WAN_VAE_PATH=/mnt/dataset/public_data/cosmos3-cache/wan22_vae/Wan2.2_VAE.pth
 BASE_CHECKPOINT_PATH=/mnt/gyc_ckp/models/Cosmos3-Nano-DCP-411f42a8fdfb
 HF_HOME=/mnt/dataset/public_data/cosmos3-cache/huggingface
 COSMOS3_TOKENIZER_PATH="$HF_HOME/hub/models--nvidia--Cosmos3-Nano/snapshots/411f42a8fdfb8c5b2583cb8786e0938f49796eaa/text_tokenizer"
-OUT_BASE=/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260718_retry12
+OUT_BASE=/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260720_future32_prompt_retry1
+
+for candidate in \
+  /mnt/dataset/csx_workspace/Ideas/AF3/code/RoboTwin/description/task_instruction \
+  /mnt/dataset/sixiangchen_workspace/Ideas/AF3/code/RoboTwin/description/task_instruction; do
+  if [[ -f "$candidate/turn_switch.json" ]]; then
+    ROBOTWIN_TASK_INSTRUCTION_ROOT="$candidate"
+    break
+  fi
+done
+[[ -n "${ROBOTWIN_TASK_INSTRUCTION_ROOT:-}" ]] || die "RoboTwin task_instruction root missing"
 
 [[ -x "$REPO/.venv/bin/python" ]] || die "Cosmos3 venv missing"
 [[ -f "$WAN_VAE_PATH" ]] || die "Wan2.2 VAE missing: $WAN_VAE_PATH"
@@ -37,6 +47,7 @@ OUT_BASE=/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260718_retry
 [[ -f "$AFD_ROOT/exploration/tasks/turn_switch/meta/info.json" ]] || die "mix4 exploration data missing"
 
 export AFD_ROOT WAN_VAE_PATH BASE_CHECKPOINT_PATH HF_HOME COSMOS3_TOKENIZER_PATH OUT_BASE
+export ROBOTWIN_TASK_INSTRUCTION_ROOT
 export AFD_VIDEO_FALLBACK_ROOTS=/mnt/dataset/csx_workspace/Ideas/data/ActionFollowingData_LeRobot_Rot6D
 export AFD_VIDEO_SYMLINK_PREFIX_REMAP=/mnt/dataset/csx_workspace/Ideas/data=/mnt/dataset/sixiangchen_workspace/Ideas/data
 export HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1
@@ -84,20 +95,31 @@ cd "$REPO"
 import gc
 import json
 import os
+from pathlib import Path
 
 import torch
 
 from cosmos_framework.data.generator.action.datasets.actionfollowing_lerobot_dataset import (
+    ACTION_FEATURE,
+    CAMERA_FEATURES,
     ActionFollowingLeRobotDataset,
 )
 
 expected = {
-    "clean": 475_122,
+    "clean": 472_622,
     "perturbed": 250_000,
-    "random_feasible": 1_350_000,
-    "counterfactual_replay": 474_645,
-    "exploration": 121_071,
+    "random_feasible": 1_345_000,
+    "counterfactual_replay": 472_145,
+    "exploration": 120_821,
 }
+
+
+def canonical_full_description(task_name: str) -> str:
+    task_path = Path(os.environ["ROBOTWIN_TASK_INSTRUCTION_ROOT"]) / f"{task_name}.json"
+    payload = json.loads(task_path.read_text())
+    prompt = payload.get("full_description")
+    assert isinstance(prompt, str) and prompt.strip(), (task_path, prompt)
+    return prompt.strip()
 
 for protocol in ("clean", "mix4"):
     dataset = ActionFollowingLeRobotDataset(
@@ -109,10 +131,16 @@ for protocol in ("clean", "mix4"):
     wanted = {"clean": expected["clean"]} if protocol == "clean" else expected
     assert dataset.family_effective_counts == wanted, (dataset.family_effective_counts, wanted)
     assert len(set(dataset._task_by_source)) == 50
+    delta_timestamps = dataset._dataset_build_args[0]["delta_timestamps"]
+    assert len(delta_timestamps[ACTION_FEATURE]) == 32
+    assert all(len(delta_timestamps[feature]) == 33 for feature in CAMERA_FEATURES)
+    assert delta_timestamps[ACTION_FEATURE][-1] < delta_timestamps[CAMERA_FEATURES[0]][-1]
     audit = dataset.audit_sampling(num_samples=100_000, seed=20260717)
     assert audit["max_abs_error"] <= 0.02, audit
     item = dataset[0]
     assert tuple(item["action"].shape) == (32, 20), item["action"].shape
+    assert item["video"].shape[1] == 33, item["video"].shape
+    assert item["ai_caption"] == canonical_full_description(item["task_name"])
     assert torch.isfinite(item["action"]).all()
     assert torch.isfinite(item["video"].float()).all()
     print(json.dumps({
@@ -122,6 +150,9 @@ for protocol in ("clean", "mix4"):
         "audit": audit,
         "action_shape": list(item["action"].shape),
         "video_shape": list(item["video"].shape),
+        "timeline": "current1+future32",
+        "prompt_source": "RoboTwin full_description",
+        "prompt": item["ai_caption"],
         "views": ["cam_high", "cam_left_wrist", "cam_right_wrist"],
     }, sort_keys=True))
     family_probe_indices = {}
@@ -137,11 +168,15 @@ for protocol in ("clean", "mix4"):
         assert family_item["family"] == family, (family_item["family"], family)
         assert tuple(family_item["action"].shape) == (32, 20)
         assert family_item["video"].shape[1] == 33
+        assert family_item["ai_caption"] == canonical_full_description(family_item["task_name"])
         print(json.dumps({
             "decode_probe_family": family,
             "sample_index": sample_index,
             "action_shape": list(family_item["action"].shape),
             "video_shape": list(family_item["video"].shape),
+            "timeline": "current1+future32",
+            "prompt_source": "RoboTwin full_description",
+            "prompt": family_item["ai_caption"],
         }, sort_keys=True))
         del family_item
     del dataset, item
@@ -160,7 +195,7 @@ run_train() {
   local per_rank_batch="$1"
   local label="$2"
   local output_root="$OUT_BASE/$label"
-  local run_name="cosmos3_nano_afd_full50_mix4_rot6d20_a32_${label}_20step_smoke"
+  local run_name="cosmos3_nano_afd_full50_mix4_rot6d20_a32_future32_prompt_${label}_20step_smoke"
   mkdir -p "$output_root"
   echo "[TRAIN] label=$label per_rank_batch=$per_rank_batch global_batch=$((per_rank_batch * 8))"
   AFD_PROTOCOL=mix4 \

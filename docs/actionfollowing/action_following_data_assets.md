@@ -409,6 +409,22 @@ pass/fail
 
 建议 pass 阈值：各 family probability 绝对误差 `<= 2%`。
 
+### Cosmos3 forward-dynamics window 口径
+
+下表的 `chunk32 sliding samples` 是 32 个 action 行的基础资产统计。Cosmos3 的 canonical forward dynamics 还需要真实 `O[t+32]`：`A[t+i]` 对应 `O[t+i] -> O[t+i+1]`，所以 camera query 是 `O[t]..O[t+32]` 共 33 个时间点，禁止复制最后一帧。
+
+因此 trajectory-level family 的 Cosmos3 window 数是 `max(L - 32, 0)`，比基础 action-chunk 口径每条 episode 少 1；chunk-level perturbed 仍只取一个 33-row prefix。`enhanced_v1_split/train` 上的 Cosmos3 counts 为：
+
+```text
+clean                 472622
+perturbed             250000
+random_feasible      1345000
+counterfactual_replay 472145
+exploration           120821
+```
+
+这些 model-specific counts 不覆盖下面的资产统计，也不改变 mix4 目标比例：clean 50%，四类 enhanced 各 12.5%。
+
 ## 资产统计
 
 | 大类 | 子类 / asset | 样本数 | 任务数 | 粒度 | 长度 min / median / mean / max | chunk16 sliding samples | chunk32 sliding samples |

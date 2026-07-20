@@ -27,7 +27,7 @@ def _model_config() -> dict:
     cfg["diffusion_expert_config"]["load_weights_from_pretrained"] = False
     cfg["rectified_flow_training_config"]["loss_scale"] = 1.0
     cfg["rectified_flow_training_config"]["image_loss_scale"] = None
-    # 32 actions condition 33 visual frames (the canonical final frame is padded).
+    # 32 actions condition the real current observation plus 32 future observations.
     cfg["tokenizer"]["encode_exact_durations"] = [33]
     return cfg
 

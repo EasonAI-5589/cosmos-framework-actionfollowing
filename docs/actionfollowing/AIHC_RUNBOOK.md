@@ -26,7 +26,9 @@
 | Pool / queue | `cce-pmm1yohj` / `train22` |
 | Hardware | 8x A800 80GB, CPU 123, memory 970 Gi, RDMA 1, shm 120 Gi |
 
-Effective train counts are `clean=475122`, `perturbed=250000`, `random_feasible=1350000`, `counterfactual_replay=474645`, `exploration=121071`.
+The base 32-action chunk counts used by Predict2.5 are `clean=475122`, `perturbed=250000`, `random_feasible=1350000`, `counterfactual_replay=474645`, `exploration=121071`.
+
+Cosmos3 additionally requires a genuine next observation for every action. Its `current1 + future32` counts are `clean=472622`, `perturbed=250000`, `random_feasible=1345000`, `counterfactual_replay=472145`, `exploration=120821`.
 
 ## 2. Paths and assets
 
@@ -34,7 +36,8 @@ Effective train counts are `clean=475122`, `perturbed=250000`, `random_feasible=
 |---|---|
 | Local workspace | `/Users/user/HumanoidX-DEV/ACWM` |
 | Local launch bundle | `aihc/cosmos_baseline_smoke_20260718` |
-| Remote job bundle | `/mnt/gyc/Action-Following/jobs/20260718` |
+| Remote Cosmos3 repair bundle | `/mnt/gyc/Action-Following/jobs/20260720` |
+| RoboTwin full descriptions | `/mnt/dataset/csx_workspace/Ideas/AF3/code/RoboTwin/description/task_instruction` (or the mounted sixiangchen mirror) |
 | Cosmos3 repo | `/mnt/gyc/cosmos-framework` |
 | Predict2.5 repo | `/mnt/gyc/cosmos-predict2.5` |
 | Canonical data | `/mnt/dataset/sixiangchen_workspace/Ideas/data/ActionFollowingData_LeRobot_Rot6D/train` |
@@ -51,7 +54,7 @@ AIHC containers mount public storage at `/mnt/dataset/public_data`; startup scri
 ## 3. Launch sequence
 
 1. Run `bash -n`, JSON parsing, lint, and relevant unit tests locally and remotely.
-2. Cosmos3: instantiate the local Qwen tokenizer and run the exact structured TOML `--dryrun` with all production environment variables.
+2. Cosmos3: assert 32 action timestamps against 33 camera timestamps, compare decoded prompts with RoboTwin `full_description`, instantiate the local Qwen tokenizer, and run the exact structured TOML `--dryrun` with all production environment variables.
 3. Predict2.5: compose the Hydra config and assert the final dataloader target/keys, canonical compatibility values, local VAE path, and local Reason1 processor path.
 4. Run `scripts/validate_job_bundle.py`.
 5. Query queue pressure; `free=0` means submit may remain `Created`, not that submission failed.
@@ -69,6 +72,9 @@ AIHC containers mount public storage at `/mnt/dataset/public_data`; startup scri
 ### Cosmos3-Nano
 
 - Use native three-view video and `Cosmos3-Nano` DCP.
+- Fetch real `O[t]..O[t+32]` for `A[t]..A[t+31]`; never synthesize the last observation by duplicating `O[t+31]`.
+- Read `ai_caption` from the LeRobot task column repaired from RoboTwin `full_description`; empty text must fail loudly.
+- Exclude the terminal action-only start of every trajectory episode and assert the Cosmos3-specific counts above.
 - Register `action_forward_dynamics_actionfollowing_nano` explicitly from `cosmos_framework/configs/base/config.py`.
 - Pre-initialize the Hugging Face `tqdm` lock before concurrent metadata discovery.
 - Resolve the VLM tokenizer to the Cosmos3-Nano snapshot's local `text_tokenizer`; do not rely on offline resolution of `Qwen/Qwen3-VL-8B-Instruct`.
@@ -89,12 +95,14 @@ AIHC containers mount public storage at `/mnt/dataset/public_data`; startup scri
 | Missing repo or checkpoint path | AIHC PFS mount differs from login node | Verify aliases and datasource mounts inside the pod |
 | Missing `/mnt/public_ckp` | Alias not created in container | Create only after target mount exists; compare `readlink -f` |
 | VAE download/fallback failure | Wrong or partial tokenizer asset | Pin official local VAE/tokenizer and preload it |
-| Incorrect mix4 counts | Full asset counts confused with train split | Assert the five effective train counts above |
+| Incorrect mix4 counts | Full asset counts confused with train split, or base action-chunk counts used for Cosmos3 | Assert the model-specific five train counts above |
 | `tqdm._lock` missing | Nested concurrent metadata loaders race on lazy lock | Call `tqdm.get_lock()` before the outer thread pool |
 | Hydra experiment missing | New Cosmos3 experiment module not imported | Add explicit import and run structured TOML dryrun |
 | Qwen vocab path is `None` | Offline model ID resolves to incomplete cache | Point to Cosmos3-Nano local `text_tokenizer`; assert vocab 151643 |
 | Enhanced video is `FileNotFound` although the split entry exists | Train-split MP4 is an absolute symlink to the absent `/mnt/dataset/csx_workspace/Ideas/data` prefix | Resolve only broken symlink targets through `AFD_VIDEO_SYMLINK_PREFIX_REMAP=/mnt/dataset/csx_workspace/Ideas/data=/mnt/dataset/sixiangchen_workspace/Ideas/data`; preserve the split parquet/actions/counts |
 | Cosmos3 timestamp tolerance assertion on exploration video | Some enhanced MP4s are 10 FPS while the action timeline remains 30 Hz | Keep actions at 30 Hz and use `VIDEO_TIMESTAMP_TOLERANCE_S=0.051` so the nearest repeated 10 FPS frame is accepted; do not retime labels |
+| Last action supervises a frozen frame | Camera deltas contain only 32 timestamps and the loader duplicates the tail | Query 33 camera timestamps and exclude trajectory terminal starts; prove `O[t+32]` is real |
+| Cosmos3 prompt is empty | Adapter hard-codes `ai_caption=""` | Use the LeRobot task/full_description and compare every family probe with the canonical RoboTwin JSON |
 | NumPy/torch video error | HWC NumPy passed into Torch transforms | Convert to contiguous TCHW tensor first |
 | Unexpected `gripper_rescale_factor` | Parent RoboTwin dataset keys survive Hydra merge | Accept and hard-check only canonical values |
 | Unexpected `dataloaders` | Parent joint-pretraining map survives top-level merge | Dedicated builder discards this one enumerated residue |
@@ -132,13 +140,13 @@ After both latest jobs pass and cleanup is authorized:
 
 Do not delete persistent outputs until separately authorized.
 
-## 8. Known-good smoke reference
+## 8. Smoke reference
 
 Verified on 2026-07-18 in `cce-pmm1yohj/train22`:
 
 | Model | Successful job | Persistent output | Final proof |
 |---|---|---|---|
-| Cosmos3-Nano | `job-s4qigpgr3lky` | `/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260718_retry12` | batch 16, 20 steps, rank-0 final loss 0.2027, 137 GB DCP |
+| Cosmos3-Nano | `job-s4qigpgr3lky` | `/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260718_retry12` | Historical bring-up only; invalidated by duplicated-tail and empty-prompt bugs |
 | Cosmos-Predict2.5-2B | `job-c469z4urkofj` | `/mnt/gyc_ckp/Action-Following/outputs/cosmos_predict25/mix4/smoke_20260718_retry12` | batch 16, 20 steps, final loss 0.1634, 20 GB DCP |
 
-Both roots contain `SMOKE_RESULT.txt`; each latest marker points to `iter_000000020`. Treat these as known-good references, not as substitutes for live verification on a new run.
+Both historical roots contain `SMOKE_RESULT.txt` and an `iter_000000020` marker, but only the Predict2.5 result remains a valid smoke gate. Cosmos3 must pass the prepared `future32_prompt` repair smoke before any 40k launch.

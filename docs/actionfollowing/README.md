@@ -4,20 +4,20 @@
 
 ## 当前结论
 
-- 两个模型的真实 `mix4` 20 optimizer-step smoke 均已在 AIHC `cce-pmm1yohj/train22` 成功完成。
-- 两条成功 smoke 均为 effective global batch 16，没有使用 batch-8 OOM fallback。
-- 已验证真实 clean/mix4 数据、50 tasks、Rot6D20 `[32,20]`、规定的 mix4 比例、finite loss、checkpoint 与 latest marker。
+- Cosmos-Predict2.5 的真实 `mix4` 20 optimizer-step smoke 已在 AIHC `cce-pmm1yohj/train22` 完成并仍然有效。
+- Cosmos3 历史 smoke `job-s4qigpgr3lky` 虽然完成 20 steps、finite loss 和 checkpoint，但复查发现它把第 32 个 observation 复制成尾帧且 text prompt 为空；该结果只能作为历史 bring-up 证据，不能再作为 canonical smoke gate。
+- Cosmos3 loader 已改为读取真实 `O[t]..O[t+32]`，并使用 LeRobot task metadata 中的 RoboTwin `full_description`；新 20-step smoke bundle 已准备，尚未提交/运行。
 - 当前成功 job 是 `mix4` smoke；其中 clean 与四类 enhanced 均做过真实 decode/audit，但没有另起 clean-only 20-step job。
 - Cosmos3 使用三视角；Cosmos-Predict2.5 使用原生 action-conditioned 单视角 head。
 - `clean` 与 `mix4` 的 40k 训练配置已经写好，但当前没有 Cosmos3/Cosmos-Predict2.5 40k AIHC job。
-- 因此当前状态是“适配和 smoke gate 通过”，不是“完整 baseline 复现完成”。完整复现还需要 2 个模型 x 2 个协议，共 4 条 40k 正式训练。
+- 因此当前状态是“Cosmos3 bug 已修到本地代码并进入重新验证，Cosmos2.5 smoke gate 通过”，不是“完整 baseline 复现完成”。任何 Cosmos3 40k 都必须等待修复版 smoke 通过。
 
 ### 状态矩阵
 
 | 模型 | 协议 | 代码 | 真实数据检查 | 20-step smoke | 40k job | 当前结论 |
 |---|---|---|---|---|---|---|
-| Cosmos3-Nano | `clean` | 已实现 | clean root、50 tasks、Rot6D20 已验证 | 未单独启动 clean-only smoke | 未创建 | 配置可审查，尚未形成训练结果 |
-| Cosmos3-Nano | `mix4` | 已实现 | 五类数据、counts、10000 次 sampler audit、三视角已验证 | `job-s4qigpgr3lky` 成功 | 未创建 | smoke gate 通过 |
+| Cosmos3-Nano | `clean` | 修复已实现，待运行验证 | 新 timeline/prompt 断言已写入 bundle | 未单独启动 clean-only smoke | 未创建 | 不得启动 40k |
+| Cosmos3-Nano | `mix4` | 修复已实现，待运行验证 | 新 counts、33 个真实 observation、full_description、三视角待 AIHC probe | 历史 `job-s4qigpgr3lky` 已失效；修复版未提交 | 未创建 | smoke gate 未通过 |
 | Cosmos-Predict2.5-2B | `clean` | 已实现 | clean root、50 tasks、Rot6D20 已验证 | 未单独启动 clean-only smoke | 未创建 | 配置可审查，尚未形成训练结果 |
 | Cosmos-Predict2.5-2B | `mix4` | 已实现 | 五类数据、counts、10000 次 sampler audit、单视角已验证 | `job-c469z4urkofj` 成功 | 未创建 | smoke gate 通过 |
 
@@ -42,7 +42,7 @@
 | Cosmos2.5 视角 | `cam_high` |
 | AIHC | pool `cce-pmm1yohj`，queue `train22`，8x A800 80GB |
 
-full50 chunk32 有效 train counts：
+基础 32-action chunk counts（Cosmos-Predict2.5 保持此口径）：
 
 ```text
 clean                 475122
@@ -50,6 +50,16 @@ perturbed             250000
 random_feasible      1350000
 counterfactual_replay 474645
 exploration           121071
+```
+
+Cosmos3 forward dynamics 必须为 32 个 action 读取 33 个真实 observation，因此每条 trajectory 排除最后一个没有 `O[t+32]` 的起点；perturbed chunk-level prefix 不变。修复后的 model-specific counts 为：
+
+```text
+clean                 472622
+perturbed             250000
+random_feasible      1345000
+counterfactual_replay 472145
+exploration           120821
 ```
 
 采样必须在 chunk-sample level 按权重实现，禁止 family-first。当前目标为：
@@ -109,7 +119,7 @@ git switch agent/actionfollowing-rot6d20-baseline
 git remote add upstream https://github.com/nvidia-cosmos/cosmos-predict2.5.git
 ```
 
-公开分支的 upstream 基线与服务器成功 smoke 对齐：
+公开分支的 upstream 基线与历史服务器 bring-up 对齐；Cosmos3 本轮修复仍需重新同步和 smoke：
 
 ```text
 Cosmos3 upstream base:       26a50b8eb7b78fd8e0449918aa2d6e5b54fd9b8d
@@ -216,7 +226,7 @@ probe_actionfollowing_video_assets.sh
 data_asset_probe_job.json
 ```
 
-本地与服务器的两个核心 dataset adapter、两个成功 smoke 启动脚本 SHA256 已核对一致。
+历史 smoke 时本地与服务器 SHA256 曾核对一致；本轮 Cosmos3 `future32_prompt` 修复在重新同步后必须生成新的 SHA256 证据，旧记录不可复用。
 
 ## 代码模块职责
 
@@ -236,10 +246,11 @@ Cosmos3 loader 的关键行为：
 
 1. `clean` 枚举 50 个 task roots；`mix4` 枚举 350 个 roots：clean 50、perturbed 100、random feasible 100、counterfactual replay 50、exploration 50。
 2. 每个 source 在构建索引时校验 `action` 和 `observation.state` 最后一维均为 20，并要求三视角 feature 全部存在。
-3. `perturbed` 已是 chunk-level，每条 sample 只贡献一个 32-step prefix；其它 trajectory-level family 使用 stride-1 sliding windows。
+3. `perturbed` 已是 chunk-level，每条 sample 只贡献一个 32-step prefix；其它 trajectory-level family 使用 stride-1 sliding windows，并排除没有真实 `O[t+32]` 的 terminal start。
 4. sampler 在 flattened chunk index 上构建 deterministic weighted CDF，不先抽 family。
-5. 每个样本输出 32 步 Rot6D20 action；视频使用 `cam_high/cam_left_wrist/cam_right_wrist`，32 帧解码后复制最后一帧形成 33-frame visual sequence。
-6. 10 FPS enhanced 视频仍配 30 Hz action timeline，nearest-frame tolerance 为 `0.051s`；不得把 action 标签重采样到 10 Hz。
+5. 每个样本输出 32 步 Rot6D20 action；三视角分别查询 33 个时间点并解码真实 `O[t]..O[t+32]`，禁止复制尾帧。
+6. `ai_caption` 必须来自 LeRobot `sample["task"]`，其 metadata 已与 RoboTwin `description/task_instruction/<task>.json` 的 `full_description` 对齐；空 prompt 必须 fail loudly。
+7. 10 FPS enhanced 视频仍配 30 Hz action timeline，nearest-frame tolerance 为 `0.051s`；不得把 action 标签重采样到 10 Hz。
 
 ### Cosmos-Predict2.5 模块
 
@@ -325,11 +336,11 @@ Cosmos2.5 Reason1:
 /mnt/public_ckp/cscsx_projects/cosmospredict2.5_infer/models/Cosmos-Reason1-7B
 ```
 
-## 已成功 smoke
+## Smoke 状态
 
 | 模型 | AIHC job | 结果 | final loss | checkpoint |
 |---|---|---|---:|---|
-| Cosmos3-Nano | `job-s4qigpgr3lky` | `Succeeded`，20/20 steps，batch 16 | rank-0 `0.2027` | 137GB DCP，`iter_000000020` |
+| Cosmos3-Nano | `job-s4qigpgr3lky` | 历史 bring-up 完成，但 timeline/prompt 语义错误，canonical gate 无效 | rank-0 `0.2027` | 历史 137GB DCP，禁止作为修复版起点 |
 | Cosmos-Predict2.5-2B | `job-c469z4urkofj` | `Succeeded`，20/20 steps，batch 16 | `0.1634` | 20GB DCP，`iter_000000020` |
 
 持久化输出：
@@ -339,7 +350,7 @@ Cosmos2.5 Reason1:
 /mnt/gyc_ckp/Action-Following/outputs/cosmos_predict25/mix4/smoke_20260718_retry12
 ```
 
-两个目录均包含：
+两个历史目录均包含：
 
 ```text
 SMOKE_RESULT.txt                  # status=passed, protocol=mix4, steps=20, effective_global_batch=16
@@ -347,7 +358,7 @@ SMOKE_RESULT.txt                  # status=passed, protocol=mix4, steps=20, effe
 .../checkpoints/iter_000000020/
 ```
 
-注意：这些 checkpoint 只证明训练链路真实可用，不是 40k baseline 最终模型。
+注意：Cosmos3 历史 checkpoint 使用复制尾帧和空 prompt，既不是 40k baseline，也不是修复版可续训 checkpoint。Cosmos-Predict2.5 checkpoint 仍是有效的 20-step smoke 产物。
 
 查询当前状态：
 
@@ -359,7 +370,9 @@ SMOKE_RESULT.txt                  # status=passed, protocol=mix4, steps=20, effe
   -p cce-pmm1yohj -q train22 -s
 ```
 
-### Cosmos3 smoke 证据链
+### Cosmos3 历史 smoke 证据链（已失效）
+
+下列记录只用于追踪旧训练，不得再表述为 canonical smoke passed：
 
 ```text
 AIHC name:
@@ -411,6 +424,20 @@ effective_global_batch=16
 checkpoint=.../checkpoints/iter_000000020
 ```
 
+这里的 `status=passed` 是旧脚本当时写入的原始记录；发现 timeline/prompt bug 后，handoff 判定已覆盖该旧状态。
+
+修复版 20-step smoke bundle：
+
+```text
+AIHC name: ACWM_cosmos3_full50_mix4_rot6d20_future32_prompt_bs16_20step_smoke_train22_retry1_20260720
+script: docs/actionfollowing/aihc/run_cosmos3_mix4_20step_smoke.sh
+job JSON: docs/actionfollowing/aihc/cosmos3_job_20step_smoke.json
+planned output: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260720_future32_prompt_retry1
+submission: not submitted
+```
+
+该 bundle 会在训练前强制检查 32 action timestamps、33 camera timestamps、五类新 counts，以及每个 probe 的 `ai_caption == RoboTwin full_description`。
+
 ### Cosmos-Predict2.5 smoke 证据链
 
 ```text
@@ -436,8 +463,9 @@ trainer debug log:
 日志中的关键事实：
 
 ```text
-effective counts: 与 Cosmos3 相同
-10k sampler audit: 与 Cosmos3 相同，max_abs_error=0.0003
+effective counts: clean=475122, perturbed=250000, random_feasible=1350000,
+                  counterfactual_replay=474645, exploration=121071
+10k sampler audit: max_abs_error=0.0003
 iteration 20 loss: 0.1634
 checkpoint: iter_000000020
 checkpoint size: approximately 20 GB
@@ -524,7 +552,7 @@ Cosmos2.5 mix4:
 
 当前没有为四条正式训练准备并提交最终 AIHC 40k job JSON。提交前必须：
 
-1. 从成功 smoke bundle 派生四条独立 job JSON，名称显式包含模型、`clean/mix4`、`rot6d20`、`bs16`、`40k`。
+1. 从各模型最新有效 smoke bundle 派生四条独立 job JSON，名称显式包含模型、`clean/mix4`、`rot6d20`、`bs16`、`40k`；Cosmos3 必须先通过 `future32_prompt` 修复版 smoke。
 2. 保持 8x A800、CPU 123、memory 970Gi、RDMA 1、shared memory 120Gi 和持久化 `pfs-Zx30ll` 挂载。
 3. 重新跑 syntax、unit test、配置 compose、真实数据 audit 和 bundle validator。
 4. 为每条任务使用独立持久化 output root，禁止覆盖 smoke 或其它协议结果。
@@ -544,7 +572,7 @@ Cosmos2.5 mix4:
 
 ### 40k bundle 不能直接照抄 repo-level launcher
 
-公开仓库中的 clean/mix4 launcher 表达模型配置意图，但最终 AIHC bundle 必须从已成功 retry12 smoke 脚本派生。原因：
+公开仓库中的 clean/mix4 launcher 表达模型配置意图，但最终 AIHC bundle 必须从同模型最新有效 smoke 脚本派生。Cosmos3 不得从语义已失效的 retry12 派生，必须以修复版 `future32_prompt` smoke 成功后的 bundle 为准。原因：
 
 - 登录节点路径与 AIHC 容器挂载路径不同；
 - `/mnt/public_ckp` 在容器内需要由已挂载的 `/mnt/dataset/public_data` 建立并验证 alias；
@@ -590,6 +618,8 @@ batch 8 不是排队紧张时的替代方案。只有 batch-16 运行日志出�
 
 - Cosmos3 Hugging Face checkpoint 已转换并持久化为 DCP；官方 Wan2.2 VAE 与本地 Qwen3-VL tokenizer 已固定。
 - Cosmos3 注册了 ActionFollowing experiment，修复了并发 metadata loader 的 `tqdm` lock。
+- Cosmos3 action/observation timeline 已改为 `A[t:t+32]` 对应真实 `O[t:t+33]`，删除复制尾帧，并排除每条 trajectory 的无后继 terminal window。
+- Cosmos3 text conditioning 已从空字符串改为 RoboTwin 每任务 `full_description`，且 smoke 会与 canonical JSON 逐样本比对。
 - enhanced split 中坏绝对软链通过受限 prefix remap 解析，不修改 canonical split。
 - exploration 视频部分为 10 FPS，但 action label 保持 30 Hz；timestamp tolerance 固定为 `0.051s`，允许最近重复帧，不重定时 action。
 - Cosmos2.5 loader 已把 NumPy HWC/THWC 转成 contiguous Torch TCHW。
@@ -609,11 +639,13 @@ batch 8 不是排队紧张时的替代方案。只有 batch-16 运行日志出�
 | 并发 metadata 初始化报 `tqdm._lock` | Hugging Face nested thread pool 竞态 | 外层线程池启动前调用 `tqdm.get_lock()` | 多线程 metadata discovery 完成 |
 | enhanced video `FileNotFound` | split MP4 是指向旧绝对前缀的坏 symlink | 只对匹配旧 prefix 的 target 做 env remap | 真实 enhanced 视频成功打开；不修改 canonical split |
 | Cosmos3 timestamp tolerance assertion | 10 FPS 视频配 30 Hz action timeline | 保持 30 Hz action，tolerance=`0.051s` | exploration decode probe 通过 |
+| 最后一个 action 监督静止尾帧 | camera delta 只有 32 项，loader 复制第 32 帧 | camera delta 改为 33 项并删除尾帧复制；trajectory counts 每 episode 减 1 | 真实 sample 有 `O[t+32]`，最后两帧来自不同时间戳 |
+| Cosmos3 text prompt 为空 | adapter 固定 `ai_caption=""` | 读取 LeRobot `sample["task"]`，并要求其等于 RoboTwin `full_description` | clean/mix4 五类 decode probe 均逐条比对 canonical JSON |
 | Cosmos2.5 torchvision 输入错误 | NumPy HWC/THWC 直接进入 Torch transform | contiguous NumPy -> Torch TCHW | `[3,33,256,320]` head video |
 | Cosmos2.5 tokenizer 尝试远端下载 | VAE/Reason1 路径未完全本地化 | 固定本地 VAE、Reason1、processor overlay | 断网/无 Hub fallback 下能加载 |
 | Hydra 报未知 dataset kwargs | 父 RoboTwin 参数残留 | 只接受并硬校验 canonical 三个值 | 错误值必须 fail loudly |
 | Hydra 出现父 `dataloaders` map | joint-pretraining merge 残留 | 专用 builder 只删除该枚举 residue | final target/keys compose 检查 |
-| counts 硬断言错误 | 文档全量资产 counts 被误当成 train effective counts | 使用真实 train chunk counts | 两个 loader 打印同一组五类 counts |
+| counts 硬断言错误 | 文档全量资产 counts 被误当成 train effective counts，或把 action-chunk counts 误用于需要 33 observation 的 Cosmos3 | 按模型使用 train counts；Cosmos3 再排除 terminal start | Cosmos3 与 Cosmos2.5 分别打印各自 model-specific counts |
 | rank0 后出现 NCCL abort/SIGTERM | 其它 rank 已先抛第一因果 traceback | 从完整持久化日志找最早 traceback | 不把 NCCL 尾声当 root cause |
 
 诊断新失败时，必须先保存：job ID、pod、完整持久化 log、第一条 traceback、目标 commit、job JSON SHA、run-script SHA。没有这些信息时不要直接改多个层级，也不要删除失败证据。

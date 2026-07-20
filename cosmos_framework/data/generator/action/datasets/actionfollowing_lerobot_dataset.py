@@ -46,6 +46,57 @@ CAMERA_FEATURES = (
     "observation.images.cam_right_wrist",
 )
 
+
+def _build_actionfollowing_delta_timestamps(*, fps: float, chunk_length: int) -> dict[str, list[float]]:
+    """Build the canonical ``current1 + future32`` forward-dynamics timeline.
+
+    A 32-action chunk represents transitions ``A[t+i]: O[t+i] -> O[t+i+1]``.
+    The action query therefore has 32 timestamps while every camera query has
+    33 timestamps so the final action is supervised by the real ``O[t+32]``.
+    """
+
+    if fps <= 0:
+        raise ValueError(f"fps must be positive, got {fps}")
+    if chunk_length <= 0:
+        raise ValueError(f"chunk_length must be positive, got {chunk_length}")
+    dt = 1.0 / float(fps)
+    observation_timestamps = [i * dt for i in range(chunk_length + 1)]
+    return {
+        ACTION_FEATURE: observation_timestamps[:-1],
+        CAMERA_FEATURES[0]: observation_timestamps,
+        CAMERA_FEATURES[1]: observation_timestamps,
+        CAMERA_FEATURES[2]: observation_timestamps,
+    }
+
+
+def _num_valid_forward_dynamics_windows(*, family: str, episode_length: int, chunk_length: int) -> int:
+    """Count windows with 32 actions *and* 33 genuine observations.
+
+    Perturbed records are already chunk-level, so a valid 33-row record yields
+    exactly its canonical prefix.  Trajectory-level families use stride-1
+    windows and deliberately exclude the terminal start that has no ``O[t+32]``.
+    """
+
+    required_observations = int(chunk_length) + 1
+    if episode_length < required_observations:
+        return 0
+    if family == "perturbed":
+        return 1
+    return int(episode_length) - int(chunk_length)
+
+
+def _full_description_from_sample(sample: dict[str, Any], *, task_name: str) -> str:
+    """Return the RoboTwin ``full_description`` stored in LeRobot task metadata."""
+
+    prompt = sample.get("task")
+    if not isinstance(prompt, str) or not prompt.strip():
+        raise ValueError(
+            f"{task_name}: missing non-empty RoboTwin full_description in LeRobot sample['task']; "
+            "repair meta/tasks.parquet from RoboTwin description/task_instruction before training"
+        )
+    return prompt.strip()
+
+
 ROBOTWIN_50_TASKS = (
     "adjust_bottle",
     "beat_block_hammer",
@@ -137,9 +188,7 @@ def _resolve_actionfollowing_video_path(video_path: str | Path) -> Path:
     fallback_roots: list[Path] = []
     if dataset_root.name == "train":
         fallback_roots.append(dataset_root.parent)
-    fallback_roots.extend(
-        Path(value) for value in os.environ.get("AFD_VIDEO_FALLBACK_ROOTS", "").split(":") if value
-    )
+    fallback_roots.extend(Path(value) for value in os.environ.get("AFD_VIDEO_FALLBACK_ROOTS", "").split(":") if value)
     for fallback_root in fallback_roots:
         candidate = fallback_root / relative
         if candidate.is_file():
@@ -329,17 +378,10 @@ class ActionFollowingLeRobotDataset(BaseActionLeRobotDataset):
             self._validate_metadata(meta, root)
             source_fps = float(meta.fps)
             self._source_fps.append(source_fps)
-            dt = 1.0 / source_fps
-            # Fetch 32 video frames and duplicate the last one in __getitem__.
-            # This preserves the canonical final stride-1 chunk, whose visual
-            # future is padded with the final frame by the reference loader.
-            frame_ts = [i * dt for i in range(self._chunk_length)]
-            delta_timestamps = {
-                ACTION_FEATURE: frame_ts,
-                CAMERA_FEATURES[0]: frame_ts,
-                CAMERA_FEATURES[1]: frame_ts,
-                CAMERA_FEATURES[2]: frame_ts,
-            }
+            delta_timestamps = _build_actionfollowing_delta_timestamps(
+                fps=source_fps,
+                chunk_length=self._chunk_length,
+            )
             self._register_source(
                 root=root,
                 delta_timestamps=delta_timestamps,
@@ -365,13 +407,14 @@ class ActionFollowingLeRobotDataset(BaseActionLeRobotDataset):
         kept = 0
         for episode_id in range(meta.total_episodes):
             length = int(lengths[episode_id])
-            if length <= 0:
-                continue
             sample_start = int(starts[episode_id])
-            if family == "perturbed":
-                valid_len = 1
-            else:
-                valid_len = max(1, length - self._chunk_length + 1)
+            valid_len = _num_valid_forward_dynamics_windows(
+                family=family,
+                episode_length=length,
+                chunk_length=self._chunk_length,
+            )
+            if valid_len <= 0:
+                continue
             if int(stops[episode_id]) - sample_start != length:
                 raise ValueError(f"{dataset_label}: inconsistent episode metadata for episode {episode_id}")
             self._episode_records.append((ds_idx, sample_start, valid_len, episode_id))
@@ -520,21 +563,18 @@ class ActionFollowingLeRobotDataset(BaseActionLeRobotDataset):
             )
 
         video = self._compose_three_views(sample)
-        if video.shape[0] != self._chunk_length:
-            raise ValueError(f"Expected {self._chunk_length} decoded frames, got {video.shape[0]}")
-        video = torch.cat([video, video[-1:]], dim=0)
+        expected_observations = self._chunk_length + 1
+        if video.shape[0] != expected_observations:
+            raise ValueError(f"Expected {expected_observations} decoded frames, got {video.shape[0]}")
+        task_name = self._task_by_source[ds_idx]
         return self._build_result(
             mode=mode,
             video=video,
             action=action,
-            # Cosmos Predict2.5's ActionFollowing baseline uses zero T5
-            # embeddings.  Keep Cosmos3 text empty so the two generations are
-            # compared as image+action -> video rather than adding language
-            # supervision only to Cosmos3.
-            ai_caption="",
+            ai_caption=_full_description_from_sample(sample, task_name=task_name),
             conditioning_fps=torch.tensor(round(self._source_fps[ds_idx]), dtype=torch.long),
             family=self._family_by_source[ds_idx],
-            task_name=self._task_by_source[ds_idx],
+            task_name=task_name,
             action_spec_names=self.action_names,
             additional_view_description=(
                 "The top row is the head camera. The bottom row contains the left wrist camera "

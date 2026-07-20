@@ -1,8 +1,16 @@
+import pytest
+import torch
+
 from cosmos_framework.data.generator.action.datasets.actionfollowing_lerobot_dataset import (
     ACTION_DIM,
+    ACTION_FEATURE,
+    CAMERA_FEATURES,
     ROBOTWIN_50_TASKS,
     VIDEO_TIMESTAMP_TOLERANCE_S,
     ActionFollowingLeRobotDataset,
+    _build_actionfollowing_delta_timestamps,
+    _full_description_from_sample,
+    _num_valid_forward_dynamics_windows,
     _resolve_actionfollowing_video_path,
     actionfollowing_sources,
 )
@@ -37,13 +45,71 @@ def test_action_spec_is_dual_arm_rot6d20() -> None:
     assert spec.names[10:13] == ["right_pos_x", "right_pos_y", "right_pos_z"]
 
 
+def test_forward_dynamics_timeline_has_32_actions_and_33_real_observations() -> None:
+    timestamps = _build_actionfollowing_delta_timestamps(fps=30.0, chunk_length=32)
+
+    assert len(timestamps[ACTION_FEATURE]) == 32
+    assert timestamps[ACTION_FEATURE][0] == 0.0
+    assert timestamps[ACTION_FEATURE][-1] == pytest.approx(31.0 / 30.0)
+    for camera_feature in CAMERA_FEATURES:
+        assert len(timestamps[camera_feature]) == 33
+        assert timestamps[camera_feature][-1] == pytest.approx(32.0 / 30.0)
+
+
+def test_terminal_window_without_next_observation_is_excluded() -> None:
+    assert _num_valid_forward_dynamics_windows(family="clean", episode_length=32, chunk_length=32) == 0
+    assert _num_valid_forward_dynamics_windows(family="clean", episode_length=33, chunk_length=32) == 1
+    assert _num_valid_forward_dynamics_windows(family="clean", episode_length=34, chunk_length=32) == 2
+    assert _num_valid_forward_dynamics_windows(family="perturbed", episode_length=33, chunk_length=32) == 1
+    assert _num_valid_forward_dynamics_windows(family="perturbed", episode_length=100, chunk_length=32) == 1
+
+
+def test_full_description_is_required() -> None:
+    assert (
+        _full_description_from_sample(
+            {"task": "Move the can into the pot with the robot arms."},
+            task_name="move_can_pot",
+        )
+        == "Move the can into the pot with the robot arms."
+    )
+    with pytest.raises(ValueError, match="full_description"):
+        _full_description_from_sample({"task": "  "}, task_name="move_can_pot")
+
+
+def test_getitem_keeps_real_future32_and_uses_full_description() -> None:
+    dataset = ActionFollowingLeRobotDataset.__new__(ActionFollowingLeRobotDataset)
+    dataset._chunk_length = 32
+    dataset._source_fps = [30.0]
+    dataset._family_by_source = ["clean"]
+    dataset._task_by_source = ["move_can_pot"]
+    dataset.action_names = []
+
+    frames = torch.arange(33, dtype=torch.float32).reshape(33, 1, 1, 1).expand(-1, 3, 2, 2)
+    sample = {
+        ACTION_FEATURE: torch.zeros(32, ACTION_DIM),
+        CAMERA_FEATURES[0]: frames,
+        CAMERA_FEATURES[1]: frames,
+        CAMERA_FEATURES[2]: frames,
+        "task": "Move the can into the pot with the robot arms.",
+    }
+    dataset._fetch_sample = lambda _idx: ("forward_dynamics", 0, 0, sample)
+    dataset._build_result = lambda **kwargs: kwargs
+
+    item = dataset[0]
+
+    assert item["video"].shape[0] == 33
+    assert item["video"][-2, 0, 0, 0].item() == 31.0
+    assert item["video"][-1, 0, 0, 0].item() == 32.0
+    assert item["ai_caption"] == "Move the can into the pot with the robot arms."
+
+
 def test_mix4_sampling_audit_matches_protocol() -> None:
     counts = {
-        "clean": 475122,
-        "perturbed": 1000000,
-        "random_feasible": 2700000,
-        "counterfactual_replay": 957810,
-        "exploration": 239844,
+        "clean": 472622,
+        "perturbed": 250000,
+        "random_feasible": 1345000,
+        "counterfactual_replay": 472145,
+        "exploration": 120821,
     }
     dataset = ActionFollowingLeRobotDataset.__new__(ActionFollowingLeRobotDataset)
     dataset.protocol = "mix4"

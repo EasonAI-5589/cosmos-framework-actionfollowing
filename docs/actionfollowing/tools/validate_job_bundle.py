@@ -9,7 +9,6 @@ import re
 import subprocess
 from pathlib import Path
 
-
 EXPECTED_RESOURCES = {
     "baidu.com/a800_80g_cgpu": 8,
     "cpu": 123,
@@ -18,21 +17,29 @@ EXPECTED_RESOURCES = {
     "sharedMemory": 120,
 }
 
-EXPECTED_COUNTS = {
-    "clean": 475122,
-    "perturbed": 250000,
-    "random_feasible": 1350000,
-    "counterfactual_replay": 474645,
-    "exploration": 121071,
+EXPECTED_COUNTS_BY_MODEL = {
+    # Cosmos3 needs O[t]..O[t+32] for A[t]..A[t+31], so the terminal
+    # action-only start of every trajectory episode is intentionally excluded.
+    "cosmos3": {
+        "clean": 472622,
+        "perturbed": 250000,
+        "random_feasible": 1345000,
+        "counterfactual_replay": 472145,
+        "exploration": 120821,
+    },
+    # Predict2.5 consumes the existing 32-action chunk contract directly.
+    "cosmos25": {
+        "clean": 475122,
+        "perturbed": 250000,
+        "random_feasible": 1350000,
+        "counterfactual_replay": 474645,
+        "exploration": 121071,
+    },
 }
 
-CANONICAL_DATA_ROOT = (
-    "/mnt/dataset/sixiangchen_workspace/Ideas/data/"
-    "ActionFollowingData_LeRobot_Rot6D/train"
-)
+CANONICAL_DATA_ROOT = "/mnt/dataset/sixiangchen_workspace/Ideas/data/ActionFollowingData_LeRobot_Rot6D/train"
 VIDEO_SYMLINK_REMAP = (
-    "AFD_VIDEO_SYMLINK_PREFIX_REMAP=/mnt/dataset/csx_workspace/Ideas/data="
-    "/mnt/dataset/sixiangchen_workspace/Ideas/data"
+    "AFD_VIDEO_SYMLINK_PREFIX_REMAP=/mnt/dataset/csx_workspace/Ideas/data=/mnt/dataset/sixiangchen_workspace/Ideas/data"
 )
 
 
@@ -83,6 +90,7 @@ def main() -> None:
     require("/mnt/dataset/public_data" in mounts, "public model-asset mount is missing")
 
     compact_script = re.sub(r"\s|_", "", script_text)
+    lower_compact_script = compact_script.lower()
     compact_data_root = re.sub(r"\s|_", "", CANONICAL_DATA_ROOT)
     require(f"AFDROOT={compact_data_root}" in compact_script, "script does not use the canonical train root")
     require(VIDEO_SYMLINK_REMAP in script_text, "broken enhanced-video symlink remap is missing")
@@ -92,16 +100,29 @@ def main() -> None:
         'asserttuple(item["action"].shape)==(32,20)' in compact_script,
         "script must assert canonical Rot6D20 action chunks",
     )
-    for family, count in EXPECTED_COUNTS.items():
+    for family, count in EXPECTED_COUNTS_BY_MODEL[args.model].items():
         compact_family = family.replace("_", "")
         require(f'"{compact_family}":{count}' in compact_script, f"script lacks effective count for {family}")
 
-    expected_views = (
-        '["camhigh","camleftwrist","camrightwrist"]'
-        if args.model == "cosmos3"
-        else '["camhigh"]'
-    )
+    expected_views = '["camhigh","camleftwrist","camrightwrist"]' if args.model == "cosmos3" else '["camhigh"]'
     require(f'"views":{expected_views}' in compact_script, f"script lacks canonical {args.model} views")
+    if args.model == "cosmos3":
+        require("future32" in name.lower(), "Cosmos3 job name must identify real future32 supervision")
+        require("prompt" in name.lower(), "Cosmos3 job name must identify full-description prompting")
+        require("robotwintaskinstructionroot" in lower_compact_script, "RoboTwin task-instruction root is missing")
+        require('"timeline":"current1+future32"' in lower_compact_script, "current1+future32 audit evidence is missing")
+        require(
+            "len(deltatimestamps[actionfeature])==32" in lower_compact_script,
+            "Cosmos3 script must assert 32 action timestamps",
+        )
+        require(
+            "len(deltatimestamps[feature])==33" in lower_compact_script,
+            "Cosmos3 script must assert 33 camera timestamps",
+        )
+        require(
+            'item["aicaption"]==canonicalfulldescription(item["taskname"])' in lower_compact_script,
+            "Cosmos3 script must compare the prompt with RoboTwin full_description",
+        )
 
     step_pattern = re.compile(rf"trainer\.max_iter\s*=\s*{args.steps}\b")
     require(step_pattern.search(script_text) is not None, f"script lacks explicit max_iter={args.steps}")
