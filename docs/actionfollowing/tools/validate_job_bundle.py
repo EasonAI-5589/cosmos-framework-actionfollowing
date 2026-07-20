@@ -187,6 +187,27 @@ def main() -> None:
         require("effective_global_batch=%s" in script_text, "result record must include effective batch")
     else:
         require("20step" not in name.lower(), "40k job must not use a smoke name")
+        require("40000" in name.lower(), "40k job name must identify 40000 steps")
+        require("checkpoint.save_iter=10000" in script_text, "40k script must checkpoint every 10000 steps")
+        require("scheduler.cyclelengths=[40000]" in compact_script, "40k scheduler cycle must be 40000")
+        require("scheduler.warmupsteps=[1000]" in compact_script, "40k scheduler warmup must be 1000")
+        require("runtrain2bs16" in compact_script, "40k run must try global batch 16 first")
+        require("runtrain1bs8" in compact_script, "40k run lacks the batch-8 OOM fallback")
+        require("CUDAoutofmemory" in compact_script, "40k batch fallback must detect CUDA OOM")
+        require("OutOfMemoryError" in compact_script, "40k batch fallback must detect PyTorch OOM")
+        require("latest_checkpoint.txt" in script_text, "40k run must verify the latest checkpoint marker")
+        require("iter_000040000" in script_text, "40k run must require the exact step-40000 checkpoint")
+        require(
+            "expected exactly rank-0 optimizer steps 1..40000" in script_text,
+            "40k run must require exactly 40000 optimizer steps",
+        )
+        require("iter_speed" in script_text, "40k audit must parse post-warmup per-step losses")
+        require("math.isfinite" in script_text, "40k run must require finite optimizer losses")
+        require("TRAIN_RESULT.txt" in script_text, "40k run must write a final result record")
+        require("effective_global_batch=%s" in script_text, "40k result record must include effective batch")
+        require("RUN_PROVENANCE.txt" in script_text, "40k run must persist code and bundle provenance")
+        require("train_40000" in script_text, "40k run must use a dedicated non-smoke output root")
+        require("refusing to reuse non-empty 40k output" in script_text, "40k output must be overwrite-safe")
 
     subprocess.run(["bash", "-n", str(args.script)], check=True)
     print(
