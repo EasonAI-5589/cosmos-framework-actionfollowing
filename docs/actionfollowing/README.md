@@ -6,8 +6,8 @@
 
 - Cosmos-Predict2.5 的真实 `mix4` 20 optimizer-step smoke 已在 AIHC `cce-pmm1yohj/train22` 完成并仍然有效。
 - Cosmos3 历史 smoke `job-s4qigpgr3lky` 虽然完成 20 steps、finite loss 和 checkpoint，但复查发现它把第 32 个 observation 复制成尾帧且 text prompt 为空；该结果只能作为历史 bring-up 证据，不能再作为 canonical smoke gate。
-- Cosmos3 loader 已改为读取真实 `O[t]..O[t+32]`，并使用 LeRobot task metadata 中的 RoboTwin `full_description`；新 20-step smoke bundle 直接读取 Motus mix41111 使用的 symlink-free Rot6D20 train root，并对五类 Cosmos3 counts 做硬断言。
-- 当前保留的训练记录都是 `mix4` smoke，没有另起 clean-only 20-step job；Cosmos3 旧记录已失效，修复版仍需重新做 clean 与四类 enhanced 的真实 decode/audit。
+- Cosmos3 loader 已改为读取真实 `O[t]..O[t+32]`，并使用 LeRobot task metadata 中的 RoboTwin `full_description`；新 20-step smoke bundle 直接读取 Motus mix41111 使用的 symlink-free Rot6D20 train root，并对五类 Cosmos3 counts 做硬断言。登录节点预检已真实 decode clean 和 mix4 五类数据，50 tasks、`[32,20]`、三视角 33 帧及 100k 采样比例均通过。
+- 修复版 Cosmos3 mix4 20-step smoke 已提交到 `cce-pmm1yohj/train`：`job-ploabmfspj7o`。当前真实状态为 `Created`、`0 pods`，尚未开始容器内数据审计或训练。
 - Cosmos3 使用三视角；Cosmos-Predict2.5 使用原生 action-conditioned 单视角 head。
 - `clean` 与 `mix4` 的 40k 训练配置已经写好，但当前没有 Cosmos3/Cosmos-Predict2.5 40k AIHC job。
 - 因此当前状态是“Cosmos3 bug 已修到本地代码并进入重新验证，Cosmos2.5 smoke gate 通过”，不是“完整 baseline 复现完成”。任何 Cosmos3 40k 都必须等待修复版 smoke 通过。
@@ -16,8 +16,8 @@
 
 | 模型 | 协议 | 代码 | 真实数据检查 | 20-step smoke | 40k job | 当前结论 |
 |---|---|---|---|---|---|---|
-| Cosmos3-Nano | `clean` | 修复已实现，待运行验证 | 新 timeline/prompt 断言已写入 bundle | 未单独启动 clean-only smoke | 未创建 | 不得启动 40k |
-| Cosmos3-Nano | `mix4` | 修复已实现，待运行验证 | 新 counts、33 个真实 observation、full_description、三视角待 AIHC probe | 历史 `job-s4qigpgr3lky` 已失效；修复版未提交 | 未创建 | smoke gate 未通过 |
+| Cosmos3-Nano | `clean` | 修复已实现，unit tests/ruff 通过 | 真实 clean decode、50 tasks、Rot6D20 登录节点预检通过 | 未单独启动 clean-only smoke | 未创建 | 不得启动 40k |
+| Cosmos3-Nano | `mix4` | 修复已实现，unit tests/ruff/structured TOML dryrun 通过 | 五类 counts、50 tasks、`[32,20]`、33 帧三视角、full_description 与 100k sampler audit 预检通过 | `job-ploabmfspj7o` 已提交；`Created`、`0 pods` | 未创建 | 等待真实 20-step smoke gate |
 | Cosmos-Predict2.5-2B | `clean` | 已实现 | clean root、50 tasks、Rot6D20 已验证 | 未单独启动 clean-only smoke | 未创建 | 配置可审查，尚未形成训练结果 |
 | Cosmos-Predict2.5-2B | `mix4` | 已实现 | 五类数据、counts、10000 次 sampler audit、单视角已验证 | `job-c469z4urkofj` 成功 | 未创建 | smoke gate 通过 |
 
@@ -438,8 +438,10 @@ checkpoint=.../checkpoints/iter_000000020
 AIHC name: ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_train_20260721
 script: docs/actionfollowing/aihc/run_cosmos3_mix4_20step_smoke.sh
 job JSON: docs/actionfollowing/aihc/cosmos3_job_20step_smoke.json
-planned output: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_<job-id>
-submission: not submitted
+job ID: job-ploabmfspj7o
+queue/status: cce-pmm1yohj/train; Created; 0 pods (2026-07-21 01:55:59 +08)
+output: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-ploabmfspj7o
+console: https://console.bce.baidu.com/aihc/#/job/detail/job-ploabmfspj7o?poolId=cce-pmm1yohj
 ```
 
 该 bundle 会在训练前强制检查 32 action timestamps、33 camera timestamps、五类新 counts、五类各 50 tasks、全部 350 个 LeRobot task metadata 与 RoboTwin `full_description` 一致，并对每个 family 做真实 decode probe。训练结束后还会硬检查 rank-0 optimizer steps 恰好为 1..20、loss 全部 finite、`iter_000000020` DCP 与 latest marker，之后才写 `SMOKE_RESULT.txt`。
@@ -607,7 +609,7 @@ Cosmos2.5 mix4:
 
 ```text
 pool:             cce-pmm1yohj
-queue:            train22
+queue:            train
 replicas:         1
 GPU:              8 x baidu.com/a800_80g_cgpu
 CPU:              123
@@ -662,16 +664,17 @@ batch 8 不是排队紧张时的替代方案。只有 batch-16 运行日志出�
 
 ```bash
 AIHC=/root/.agents/skills/aihccli/scripts/aihc-agent.sh
+QUEUE=train
 
-$AIHC job get <job-id> -p cce-pmm1yohj -q train22 -s
-$AIHC job get <job-id> -p cce-pmm1yohj -q train22 --pods
-$AIHC pod list <job-id> -p cce-pmm1yohj -q train22
+$AIHC job get <job-id> -p cce-pmm1yohj -q "$QUEUE" -s
+$AIHC job get <job-id> -p cce-pmm1yohj -q "$QUEUE" --pods
+$AIHC pod list <job-id> -p cce-pmm1yohj -q "$QUEUE"
 ```
 
 日志：
 
 ```bash
-$AIHC job logs <job-id> -p cce-pmm1yohj -q train22
+$AIHC job logs <job-id> -p cce-pmm1yohj -q "$QUEUE"
 ```
 
 控制面日志可能截断；一旦 job 已创建 persistent output root，应优先读对应 `train.log`、`console.log`、`debug.log` 或 Cosmos3 SFT log。状态口径：
