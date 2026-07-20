@@ -12,9 +12,9 @@ from pathlib import Path
 EXPECTED_RESOURCES = {
     "baidu.com/a800_80g_cgpu": 8,
     "cpu": 123,
-    "memory": 970,
+    "memory": 975,
     "rdma/hca": 1,
-    "sharedMemory": 120,
+    "sharedMemory": 0,
 }
 
 EXPECTED_COUNTS_BY_MODEL = {

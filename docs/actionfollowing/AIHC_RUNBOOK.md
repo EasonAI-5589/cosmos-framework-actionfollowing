@@ -24,7 +24,7 @@
 | Cosmos3 views | `cam_high`, `cam_left_wrist`, `cam_right_wrist` |
 | Predict2.5 views | `cam_high` only |
 | Pool / queue | `cce-pmm1yohj` / `train` for the 2026-07-21 repair smoke; historical runs used `train22` |
-| Hardware | 8x A800 80GB, CPU 123, memory 970 Gi, RDMA 1, shm 120 Gi |
+| Hardware | 8x A800 80GB, CPU 123, memory 975 Gi, RDMA 1, shm 0 Gi (`train` queue template) |
 
 The base 32-action chunk counts used by Predict2.5 are `clean=475122`, `perturbed=250000`, `random_feasible=1350000`, `counterfactual_replay=474645`, `exploration=121071`.
 

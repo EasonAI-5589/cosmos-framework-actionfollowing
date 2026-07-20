@@ -559,7 +559,7 @@ Cosmos2.5 mix4:
 当前没有为四条正式训练准备并提交最终 AIHC 40k job JSON。提交前必须：
 
 1. 从各模型最新有效 smoke bundle 派生四条独立 job JSON，名称显式包含模型、`clean/mix4`、`rot6d20`、`bs16`、`40k`；Cosmos3 必须先通过 `future32_prompt` 修复版 smoke。
-2. 保持 8x A800、CPU 123、memory 970Gi、RDMA 1、shared memory 120Gi 和持久化 `pfs-Zx30ll` 挂载。
+2. 保持 `train` 队列已验证的 8x A800 资源模板：CPU 123、memory 975Gi、RDMA 1、shared memory 0Gi，以及持久化 `pfs-Zx30ll` 挂载。
 3. 重新跑 syntax、unit test、配置 compose、真实数据 audit 和 bundle validator。
 4. 为每条任务使用独立持久化 output root，禁止覆盖 smoke 或其它协议结果。
 5. 向用户报告四条 job 的精确名称、命令、镜像、资源、挂载和输出路径。
@@ -611,9 +611,9 @@ queue:            train22
 replicas:         1
 GPU:              8 x baidu.com/a800_80g_cgpu
 CPU:              123
-memory:           970 GiB
+memory:           975 GiB
 RDMA:             1
-shared memory:    120 GiB
+shared memory:    0 GiB (`train` queue template; `/dev/shm` remains an emptyDir mount)
 effective batch:  16
 checkpoint PFS:   pfs-Zx30ll
 ```
