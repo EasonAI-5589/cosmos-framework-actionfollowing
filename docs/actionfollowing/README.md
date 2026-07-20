@@ -461,15 +461,41 @@ console: https://console.bce.baidu.com/aihc/#/job/detail/job-ploabmfspj7o?poolId
 /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/bootstrap_logs/<job-id>.log
 ```
 
-manifest/bootstrap 修复版重提记录：
+manifest/bootstrap 修复版（retry2）记录：
 
 ```text
 AIHC name: ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_retry2_20260721
 job ID: job-3bxehdg8flpj
-queue/initial status: cce-pmm1yohj/train; Created; 0 pods (2026-07-21 03:06:43 +08)
+queue/final status: cce-pmm1yohj/train; Failed (2026-07-21 05:34:46 +08)
 expected output: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-3bxehdg8flpj
 bootstrap log: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/bootstrap_logs/job-3bxehdg8flpj.log
 console: https://console.bce.baidu.com/aihc/#/job/detail/job-3bxehdg8flpj?poolId=cce-pmm1yohj
+```
+
+retry2 已加载本地 Qwen3-VL tokenizer 并进入真实 `clean`/`mix4` 数据审计；第一条因果 traceback 是 Hugging Face `datasets` 尝试在只读的共享 `HF_HOME` 下创建 parquet cache lock：
+
+```text
+OSError: [Errno 30] Read-only file system:
+/mnt/dataset/public_data/cosmos3-cache/huggingface/datasets/...parquet....lock
+```
+
+这不是数据比例、timeline、prompt 或训练 loss 错误。retry3 保持共享 `HF_HOME` 只读用于离线模型/tokenizer，同时把 `HF_DATASETS_CACHE`、`XDG_CACHE_HOME` 和 `TMPDIR` 定向到每个 job 独立的持久化可写目录：
+
+```text
+<OUT_BASE>/runtime_cache/
+```
+
+提交 retry3 前已在同一服务器、同一真实 Motus-aligned source 上用该 cache 成功构造 `LeRobotDatasetMetadata`（30 FPS、50 episodes），并通过远端 ruff、12/12 loader tests、shell/JSON、bundle validator、structured TOML dryrun 与 staging SHA256 校验。对应 PR commit 为 `7290246`。
+
+writable-cache 修复版（retry3）重提记录：
+
+```text
+AIHC name: ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_20step_smoke_retry3_20260721
+job ID: job-12x2lgpx0a6p
+queue/initial status: cce-pmm1yohj/train; Created / pod Pending (2026-07-21 05:40:58 +08)
+expected output: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/smoke_20260721_motusdata_future32_prompt_job-12x2lgpx0a6p
+bootstrap log: /mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/bootstrap_logs/job-12x2lgpx0a6p.log
+console: https://console.bce.baidu.com/aihc/#/job/detail/job-12x2lgpx0a6p?poolId=cce-pmm1yohj
 ```
 
 训练前会强制检查 32 action timestamps、33 camera timestamps、五类新 counts、五类各 50 tasks、全部 350 个 LeRobot task metadata 与固定版本的 RoboTwin 官方 `full_description` 一致，并记录命中的 parquet prompt 列，再对每个 family 做真实 decode probe。训练结束后还会硬检查 rank-0 optimizer steps 恰好为 1..20、loss 全部 finite、`iter_000000020` DCP 与 latest marker，之后才写 `SMOKE_RESULT.txt`。
