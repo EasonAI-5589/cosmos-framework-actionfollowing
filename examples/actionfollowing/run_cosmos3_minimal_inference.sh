@@ -55,6 +55,7 @@ fi
   -i "${INPUT_DIR}/cosmos3_forward_dynamics.json" \
   -o "${OUTPUT_DIR}" \
   --checkpoint-path "${HF_MODEL}" \
+  --no-guardrails \
   2>&1 | tee "${LOG_PATH}"
 
 SAMPLE_DIR="${OUTPUT_DIR}/actionfollowing_place_burger_fries_clean0"
