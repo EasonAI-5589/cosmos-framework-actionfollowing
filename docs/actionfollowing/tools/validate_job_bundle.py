@@ -58,6 +58,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", choices=("cosmos3", "cosmos25"), required=True)
     parser.add_argument("--steps", type=int, choices=(20, 40000), required=True)
     parser.add_argument("--queue", default="train")
+    parser.add_argument("--checkpoint-save-iter", type=int)
     return parser.parse_args()
 
 
@@ -195,7 +196,11 @@ def main() -> None:
     else:
         require("20step" not in name.lower(), "40k job must not use a smoke name")
         require("40000" in name.lower(), "40k job name must identify 40000 steps")
-        require("checkpoint.save_iter=10000" in script_text, "40k script must checkpoint every 10000 steps")
+        checkpoint_save_iter = args.checkpoint_save_iter or 10000
+        require(
+            f"checkpoint.save_iter={checkpoint_save_iter}" in script_text,
+            f"40k script must checkpoint every {checkpoint_save_iter} steps",
+        )
         require("scheduler.cyclelengths=[40000]" in compact_script, "40k scheduler cycle must be 40000")
         require("scheduler.warmupsteps=[1000]" in compact_script, "40k scheduler warmup must be 1000")
         require("runtrain2bs16" in compact_script, "40k run must try global batch 16 first")
@@ -227,6 +232,7 @@ def main() -> None:
                 "steps": args.steps,
                 "resources": resources,
                 "checkpoint_mount": checkpoint_mount["sourcePath"],
+                "checkpoint_save_iter": args.checkpoint_save_iter or (20 if args.steps == 20 else 10000),
                 "command": command,
             },
             indent=2,

@@ -8,7 +8,7 @@ export AFD_PROTOCOL="clean"
 : "${WAN_VAE_PATH:?export WAN_VAE_PATH=<Wan2.2_VAE.pth>}"
 export AFD_ROOT BASE_CHECKPOINT_PATH WAN_VAE_PATH
 
-EXTRA_DATASET_CHECK='[[ -f "$AFD_ROOT/demo_clean_zed2i_visible/adjust_bottle/meta/info.json" ]] || { echo "ERROR: canonical AFD root is not mounted: $AFD_ROOT" >&2; exit 1; }'
+EXTRA_DATASET_CHECK='[[ -f "$AFD_ROOT/demo_clean_zed2i_visible/turn_switch/meta/info.json" ]] || { echo "ERROR: canonical AFD clean root is not mounted: $AFD_ROOT" >&2; exit 1; }'
 TAIL_OVERRIDES=(
     ${EXTRA_TAIL_OVERRIDES:-}
 )
