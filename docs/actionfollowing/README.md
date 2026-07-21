@@ -12,14 +12,14 @@
 - 已逐项比较 manifest 与官方 50 个 JSON，并在 Motus symlink-free train root 上检查全部 350 个 source：clean / perturbed / random feasible / counterfactual replay / exploration 均覆盖 50 tasks，文本全部一致。真实 LeRobot v2 `tasks.parquet` 把文本保存在 `__index_level_0__`，loader 会恢复为 task 文本；smoke 现已显式审计并记录该列。
 - manifest/bootstrap retry2 `job-3bxehdg8flpj` 因共享 Hugging Face datasets cache 只读而自然失败；writable-cache retry3 `job-12x2lgpx0a6p` 已完成全部真实数据审计和 20-step 训练，成为当前 Cosmos3 canonical smoke gate。
 - Cosmos3 使用三视角；Cosmos-Predict2.5 使用原生 action-conditioned 单视角 head。
-- 用户在 smoke gate 通过后已单独授权正式训练；Cosmos3 `mix4` 40k `job-3cmb7l4p44jw` 已提交到 `cce-pmm1yohj/train21`，并于 2026-07-21 06:26:58 +08 进入 `Running`。复核 Motus 的 clean/mix4 成对基线后，Cosmos3 clean 40k bundle 也已补齐，使用相同 Motus clean 数据协议并把 checkpoint 周期改为 5000 steps；提交状态以本节状态矩阵和运行记录为准。
-- 因此当前状态是“Cosmos3 与 Cosmos2.5 的 `mix4` 20-step smoke gate 均通过，Cosmos3 `mix4` 40k 已开始运行，Cosmos3 clean 40k 已形成受检 bundle”，不是“完整 baseline 复现完成”。只有正式 job 真实到达 step 40000 并通过最终产物审计后，才能报告对应 40k 结果成功。
+- 用户在 smoke gate 通过后已单独授权正式训练；Cosmos3 `mix4` 40k `job-3cmb7l4p44jw` 已于 2026-07-21 06:26:58 +08 进入 `Running`。复核 Motus 的 clean/mix4 成对基线后，Cosmos3 clean 40k `job-ogwrcxzuaokw` 也已提交到 `cce-pmm1yohj/train21`，使用相同 Motus clean 数据协议、global batch 16 和每 5000 steps checkpoint，并于 2026-07-21 11:10:23 +08 进入 `Running`。
+- 因此当前状态是“Cosmos3 clean 与 mix4 两条正式 40k 均已开始真实训练”，不是“完整 baseline 复现完成”。只有两个 job 分别真实到达 step 40000 并通过最终产物审计后，才能报告对应 40k 结果成功。
 
 ### 状态矩阵
 
 | 模型 | 协议 | 代码 | 真实数据检查 | 20-step smoke | 40k job | 当前结论 |
 |---|---|---|---|---|---|---|
-| Cosmos3-Nano | `clean` | 修复已实现，40k bundle validator 通过 | 真实 clean decode、50 tasks、Rot6D20 已由 canonical smoke/bundle audit 覆盖 | 未单独启动 clean-only smoke | 5K checkpoint bundle 已准备 | 待 PR 与 AIHC 运行级预检后提交 |
+| Cosmos3-Nano | `clean` | 修复已实现，ruff/12 tests/40k bundle validator/structured dryrun 通过 | 真实 clean decode、50 tasks、`[32,20]`、33 帧三视角、full_description 审计通过 | 未单独启动 clean-only smoke；正式 bundle 内置同等 preflight | `job-ogwrcxzuaokw`，`train21`，Running | 正式训练中，5K checkpoint，尚未完成 |
 | Cosmos3-Nano | `mix4` | 修复已实现，12 unit tests/ruff/bundle validator 通过 | 五类真实 decode、50 tasks、`[32,20]`、33 帧三视角、官方 full_description 与 100k sampler audit 通过 | `job-12x2lgpx0a6p` 成功，20/20 steps，batch 16，loss `0.1316` | `job-3cmb7l4p44jw`，`train21`，Running | 正式训练中，尚未完成 |
 | Cosmos-Predict2.5-2B | `clean` | 已实现 | clean root、50 tasks、Rot6D20 已验证 | 未单独启动 clean-only smoke | 未创建 | 配置可审查，尚未形成训练结果 |
 | Cosmos-Predict2.5-2B | `mix4` | 已实现 | 五类数据、counts、10000 次 sampler audit、单视角已验证 | `job-c469z4urkofj` 成功 | 未创建 | smoke gate 通过 |
@@ -685,7 +685,7 @@ Cosmos3 `mix4` 的最终 AIHC 40k bundle 已由 canonical retry3 smoke 派生、
 
 | 模型 | 协议 | 建议 job name 模板 | 建议持久化 output root | 当前状态 |
 |---|---|---|---|---|
-| Cosmos3-Nano | clean | `ACWM_cosmos3_full50_clean_motusdata_rot6d20_future32_prompt_bs16_40000step_ckpt5k_20260721` | `/mnt/gyc_ckp/Action-Following/outputs/cosmos3/clean/train_40000_20260721_motusdata_future32_prompt_<job-id>` | bundle 已生成，待提交 |
+| Cosmos3-Nano | clean | `ACWM_cosmos3_full50_clean_motusdata_rot6d20_future32_prompt_bs16_40000step_ckpt5k_20260721` | `/mnt/gyc_ckp/Action-Following/outputs/cosmos3/clean/train_40000_20260721_motusdata_future32_prompt_job-ogwrcxzuaokw` | `job-ogwrcxzuaokw`，`train21`，Running |
 | Cosmos3-Nano | mix4 | `ACWM_cosmos3_full50_mix41111_motusdata_rot6d20_future32_prompt_bs16_40000step_20260721` | `/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/train_40000_20260721_motusdata_future32_prompt_job-3cmb7l4p44jw` | `job-3cmb7l4p44jw`，`train21`，Running |
 | Cosmos-Predict2.5 | clean | `ACWM_cosmos25_full50_clean_rot6d20_bs16_40k_train22_<date>` | `/mnt/gyc_ckp/Action-Following/outputs/cosmos_predict25/clean/train_40k_<date>` | 未生成 job JSON、未提交 |
 | Cosmos-Predict2.5 | mix4 | `ACWM_cosmos25_full50_mix4_rot6d20_bs16_40k_train22_<date>` | `/mnt/gyc_ckp/Action-Following/outputs/cosmos_predict25/mix4/train_40k_<date>` | 未生成 job JSON、未提交 |
@@ -762,6 +762,35 @@ docs/actionfollowing/aihc/cosmos3_job_40000_mix4.json
 ```
 
 启动时已核验 8 GPUs、本地 Qwen3-VL tokenizer `vocab_size=151643`、独立 writable datasets cache，以及 `optimizer_steps=40000 / checkpoint_save_iter=10000 / scheduler_cycle=40000 / warmup_steps=1000`。真实 clean/mix4 审计与五类 decode 均已再次通过，训练已进入 real optimizer steps；step 10000 的 137G DCP 与 latest marker 已成功落盘。该运行中的保存周期保持 10000，不因后续仓库将新任务改为 5000 而重启。`Running` 不等于 40k 已成功。
+
+### Cosmos3 clean 40k 运行记录
+
+```text
+PR commit containing the clean launch bundle: cc06da6
+job ID: job-ogwrcxzuaokw
+queue: cce-pmm1yohj/train21
+AIHC created: 2026-07-21 11:10:08 +08
+AIHC running: 2026-07-21 11:10:23 +08
+pod: job-ogwrcxzuaokw-master-0
+node: 10.40.1.5
+pod IP at startup: 172.17.125.254
+```
+
+启动 bundle：
+
+```text
+docs/actionfollowing/aihc/run_cosmos3_clean_40000.sh
+docs/actionfollowing/aihc/cosmos3_job_40000_clean.json
+```
+
+持久化输出与 bootstrap 日志：
+
+```text
+/mnt/gyc_ckp/Action-Following/outputs/cosmos3/clean/train_40000_20260721_motusdata_future32_prompt_job-ogwrcxzuaokw
+/mnt/gyc_ckp/Action-Following/outputs/cosmos3/clean/bootstrap_logs/job-ogwrcxzuaokw.log
+```
+
+正式 Pod 内再次通过 clean/mix4 交叉审计：clean 50 tasks、effective windows `472622`、action `[32,20]`、三视角 33 帧和 RoboTwin full_description 均正确；五类 mix4 decode probe 也全部通过。最终 composed config 明确为 `protocol=clean / max_iter=40000 / checkpoint.save_iter=5000 / global batch=16`。基础 DCP 已加载，首次复核到 step 5，rank-0 loss `0.1051` 且 finite。首个正式 checkpoint 必须在 step 5000 后实际落盘才能验收。
 
 batch 8 不是排队紧张时的替代方案。只有 batch-16 运行日志出现真实 CUDA OOM，且原因不能通过明显配置错误修正时，才允许另建 batch-8 retry，并在 job name/handoff 中明确记录。
 
