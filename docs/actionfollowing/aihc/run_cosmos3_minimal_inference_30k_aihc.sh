@@ -22,11 +22,14 @@ actual_commit="$(git -C "$REPO" rev-parse HEAD)"
   die "repo commit mismatch: expected=$expected_commit actual=$actual_commit"
 
 export REPO_ROOT="$REPO"
+export PYTHON=/mnt/gyc/cosmos-framework/.venv/bin/python
+[[ -x "$PYTHON" ]] || die "Cosmos runtime python missing: $PYTHON"
 export DCP_RUN_ROOT=/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/train_40000_20260721_motusdata_future32_prompt_job-3cmb7l4p44jw/bs16/cosmos3_actionfollowing/forward_dynamics_mix4/cosmos3_nano_afd_full50_mix4_rot6d20_a32_future32_prompt_bs16_40000step
 export DCP_ITER=iter_000030000
 export PREPARE_INPUT=0
 export INPUT_DIR=/mnt/gyc_ckp/Action-Following/outputs/handoff_inputs/place_burger_fries_clean0_20260721
-export HANDOFF_ROOT="${DCP_RUN_ROOT}/handoff_inference/${DCP_ITER}_place_burger_fries_clean0_steps10_aihc_train_20260721"
+run_tag="${AIHC_JOB_ID:-${AIHC_JOB_NAME:-manual_$(date +%Y%m%d_%H%M%S)}}"
+export HANDOFF_ROOT="${DCP_RUN_ROOT}/handoff_inference/${DCP_ITER}_place_burger_fries_clean0_steps10_aihc_train_20260721_${run_tag}"
 
 [[ ! -e "$HANDOFF_ROOT" ]] || die "refusing to reuse handoff root: $HANDOFF_ROOT"
 mkdir -p "$HANDOFF_ROOT"
