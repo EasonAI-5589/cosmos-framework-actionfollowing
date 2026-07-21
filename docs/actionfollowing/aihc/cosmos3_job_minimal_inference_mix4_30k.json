@@ -1,5 +1,5 @@
 {
-  "name": "ACWM_cosmos3_mix4_30k_minimal_inference_rot6d20_1gpu_retry2_20260721",
+  "name": "ACWM_cosmos3_mix4_30k_minimal_inference_rot6d20_1gpu_retry3_20260721",
   "queue": "train",
   "jobFramework": "pytorch",
   "jobSpec": {
@@ -14,8 +14,8 @@
       {"name": "sharedMemory", "quantity": 120}
     ],
     "envs": [
-      {"name": "AIHC_JOB_NAME", "value": "ACWM_cosmos3_mix4_30k_minimal_inference_rot6d20_1gpu_retry2_20260721"},
-      {"name": "COSMOS_EXPECTED_COMMIT", "value": "04f047993506875cc65343bd4900fd412a13307e"},
+      {"name": "AIHC_JOB_NAME", "value": "ACWM_cosmos3_mix4_30k_minimal_inference_rot6d20_1gpu_retry3_20260721"},
+      {"name": "COSMOS_EXPECTED_COMMIT", "value": "26dd6adecbeb9f5cb20a1661f0ddb681916b108d"},
       {"name": "LOG_COLLECTION", "value": "true"},
       {"name": "PYTHONUNBUFFERED", "value": "1"}
     ],
