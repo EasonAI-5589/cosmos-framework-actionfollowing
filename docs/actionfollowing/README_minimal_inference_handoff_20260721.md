@@ -8,6 +8,7 @@
 - 正式 `clean` 40k 仍在训练；当前可完整读取的最新 checkpoint 是 `iter_000020000`。
 - 本文的脚本、输入契约和 DCP→HF→forward-dynamics 路径已经写入仓库；只有生成视频、`sample_outputs.json` 和 `INFERENCE_RESULT.txt` 都实际存在后，才能把最小推理标记为 `passed`。
 - 训练完成后只需把 `DCP_RUN_ROOT`/`DCP_ITER` 切到 `iter_000040000`，不要覆盖中间 checkpoint 的结果目录。
+- AIHC 最小推理已提交为 `job-dmq6icclbh03`，当前为 `Created`、无 Pod，尚未生成输出。`train` 是 8×A800 整机模板，因此 job 分配整机但脚本只运行一个 inference 进程；这不应误写成模型需要 8 卡。
 
 ## Checkpoint 与训练配置
 
@@ -144,6 +145,12 @@ bash examples/actionfollowing/run_cosmos3_minimal_inference.sh
   output/actionfollowing_place_burger_fries_clean0/
   minimal_inference.log
   INFERENCE_RESULT.txt
+```
+
+本次 AIHC job 的固定输出根为：
+
+```text
+/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/train_40000_20260721_motusdata_future32_prompt_job-3cmb7l4p44jw/bs16/cosmos3_actionfollowing/forward_dynamics_mix4/cosmos3_nano_afd_full50_mix4_rot6d20_a32_future32_prompt_bs16_40000step/handoff_inference/iter_000030000_place_burger_fries_clean0_steps10_aihc_train_20260721
 ```
 
 验收时至少检查：
