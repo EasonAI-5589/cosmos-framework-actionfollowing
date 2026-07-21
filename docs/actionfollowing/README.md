@@ -1,5 +1,8 @@
 # Cosmos3 / Cosmos-Predict2.5 ActionFollowing baseline 交接
 
+> 最小 forward-dynamics 推理、action space、相机 T-shape 和 DCP→HF 交接见
+> [README_minimal_inference_handoff_20260721.md](README_minimal_inference_handoff_20260721.md)。
+
 本文档交接 Cosmos3-Nano 与 Cosmos-Predict2.5-2B 在 ActionFollowingData 上的 baseline 适配、真实数据 smoke、代码路径、持久化产物和后续 40k 正式训练边界。结构参考 [Ctrl-World 单任务模型交接](https://github.com/Ricardo520nono/ctrl-world-train-wjx/blob/dev-csx-codex/code/scripts_daily/20260719/README_ctrlworld_single_task_handoff_20260719.md)。
 
 ## 当前结论

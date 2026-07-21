@@ -1,0 +1,37 @@
+{
+  "name": "ACWM_cosmos3_mix4_30k_minimal_inference_rot6d20_1gpu_20260721",
+  "queue": "train",
+  "jobFramework": "pytorch",
+  "jobSpec": {
+    "command": "bash -lc 'set -euo pipefail; ln -sfn /mnt/dataset/csx_workspace /mnt/gyc; ln -sfn /mnt/dataset/public_data /mnt/gyc_ckp; ln -sfn /mnt/dataset/public_data /mnt/public_ckp; export DCP_RUN_ROOT=/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/train_40000_20260721_motusdata_future32_prompt_job-3cmb7l4p44jw/bs16/cosmos3_actionfollowing/forward_dynamics_mix4/cosmos3_nano_afd_full50_mix4_rot6d20_a32_future32_prompt_bs16_40000step; export DCP_ITER=iter_000030000; export PREPARE_INPUT=0; export INPUT_DIR=/mnt/gyc_ckp/Action-Following/outputs/handoff_inputs/place_burger_fries_clean0_20260721; export HANDOFF_ROOT=${DCP_RUN_ROOT}/handoff_inference/${DCP_ITER}_place_burger_fries_clean0_steps10_aihc_train_20260721; bash /mnt/gyc/cosmos-framework/examples/actionfollowing/run_cosmos3_minimal_inference.sh'",
+    "image": "ccr-2mv6nelf-vpc.cnc.bj.baidubce.com/benchmark_test/cu128-csx:v2.0-cu12.8-cudnn9-ubuntu22.04_sixiangchen_20260326140532",
+    "imageConfig": {"username": "", "password": ""},
+    "replicas": 1,
+    "resources": [
+      {"name": "baidu.com/a800_80g_cgpu", "quantity": 8},
+      {"name": "cpu", "quantity": 123},
+      {"name": "memory", "quantity": 975},
+      {"name": "rdma/hca", "quantity": 1},
+      {"name": "sharedMemory", "quantity": 0}
+    ],
+    "envs": [
+      {"name": "AIHC_JOB_NAME", "value": "ACWM_cosmos3_mix4_30k_minimal_inference_rot6d20_1gpu_20260721"},
+      {"name": "LOG_COLLECTION", "value": "true"},
+      {"name": "PYTHONUNBUFFERED", "value": "1"}
+    ],
+    "enableRDMA": true,
+    "hostNetwork": false
+  },
+  "faultTolerance": false,
+  "labels": [
+    {"key": "aijob.cce.baidubce.com/create-from-aihcp", "value": "true"},
+    {"key": "aijob.cce.baidubce.com/log-collection", "value": "v3"}
+  ],
+  "priority": "high",
+  "datasources": [
+    {"id": "ds-BhhcfLGS", "type": "pfsl2", "sourcePath": "/damoxing/yichenguo-fileset", "mountPath": "/mnt/dataset/csx_workspace", "name": "pfs-Zx30ll", "options": {"sizeLimit": 0, "medium": "", "readOnly": false, "cfsInstanceId": "", "cfsMountPoint": ""}},
+    {"id": "ds-87sME4LM", "type": "pfsl2", "sourcePath": "/datasets", "mountPath": "/mnt/dataset/public_data", "name": "pfs-Zx30ll", "options": {"sizeLimit": 0, "medium": "", "readOnly": false, "cfsInstanceId": "", "cfsMountPoint": ""}}
+  ],
+  "faultToleranceArgs": "--enable-hang-detection=false --hang-detection-startup-toleration-minutes=0 --hang-detection-stack-timeout-minutes=0 --max-num-of-unconditional-retry=0",
+  "enableBccl": false
+}
