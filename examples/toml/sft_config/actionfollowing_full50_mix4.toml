@@ -1,0 +1,43 @@
+# Cosmos3-Nano ActionFollowingData full-50 mix4, aligned with Predict2.5.
+
+[job]
+task       = "vfm"
+experiment = "action_forward_dynamics_actionfollowing_nano"
+project    = "cosmos3_actionfollowing"
+group      = "forward_dynamics_mix4"
+name       = "cosmos3_nano_afd_full50_mix4_rot6d20_a32_bs16_40k"
+wandb_mode = "disabled"
+
+[model]
+precision                    = "bfloat16"
+max_num_tokens_after_packing = 74000
+
+[model.parallelism]
+data_parallel_shard_degree     = 8
+data_parallel_replicate_degree = 1
+
+[model.activation_checkpointing]
+mode           = "selective"
+save_ops_regex = ["fmha"]
+
+[model.tokenizer]
+vae_path = "${oc.env:WAN_VAE_PATH}"
+
+[dataloader_train]
+max_samples_per_batch = 2
+
+[optimizer]
+lr = 5.0e-05
+
+[scheduler]
+cycle_lengths = [40000]
+warm_up_steps = [1000]
+
+[trainer]
+max_iter        = 40000
+logging_iter    = 10
+grad_accum_iter = 1
+
+[checkpoint]
+load_path = "${oc.env:BASE_CHECKPOINT_PATH}"
+save_iter = 1000
