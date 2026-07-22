@@ -4,15 +4,15 @@
 
 ## 当前证明状态
 
-- 正式 `mix4` 40k 仍在训练；当前可完整读取的最新 checkpoint 是 `iter_000030000`。它可以做中间模型的最小推理，但不能命名为“最终 40k 模型”。
-- 正式 `clean` 40k 仍在训练；当前可完整读取的最新 checkpoint 是 `iter_000020000`。
-- 本文的脚本、输入契约和 DCP→HF→forward-dynamics 路径已经写入仓库；只有生成视频、`sample_outputs.json` 和 `INFERENCE_RESULT.txt` 都实际存在后，才能把最小推理标记为 `passed`。
-- 训练完成后只需把 `DCP_RUN_ROOT`/`DCP_ITER` 切到 `iter_000040000`，不要覆盖中间 checkpoint 的结果目录。
-- AIHC 最小推理已提交为 `job-dmq6icclbh03`，当前为 `Created`、无 Pod，尚未生成输出。`train` 是 8×A800 整机模板，因此 job 分配整机但脚本只运行一个 inference 进程；这不应误写成模型需要 8 卡。
+- `mix4` 训练 job `job-3cmb7l4p44jw` 已执行到 40,000 optimizer steps，final rank0 loss `0.0915`（finite），`iter_000040000` 与 `latest_checkpoint.txt=iter_000040000` 均存在。AIHC 状态为 `Failed`，原因是训练后严格审计只解析到 39,999 条 rank0 step 日志、唯一缺少 step 51；因此没有生成 `TRAIN_AUDIT.json`/`TRAIN_RESULT.txt`。这是“训练和 checkpoint 完成、训练后审计失败”，不能写成 job 正式验收通过。
+- `clean` 训练 job `job-ogwrcxzuaokw` 同样已执行到 40,000 optimizer steps，final rank0 loss `0.0567`（finite），5k 到 40k 的 checkpoint、`iter_000040000` 和 latest marker 均存在。AIHC 状态同样为 `Failed`，训练后审计也只缺 step 51 的日志行，未生成最终审计文件。
+- 最小推理使用 `mix4/iter_000030000`，retry3 job `job-9i1cciznft0a` 已 `Succeeded` 并完成独立验收：DCP→HF 导出成功，输入/输出均为 finite physical Rot6D20 `[32,20]`，视频可解码，`sample_outputs.json` 为 success，`INFERENCE_RESULT.txt` 为 passed。
+- `iter_000030000` 的推理结果仍明确属于 30k 中间 checkpoint；最终 40k checkpoint 已存在，但本文没有把 30k 推理冒充 40k 推理。
+- AIHC `train` 是 8×A800 整机模板，但脚本只运行一个 inference 进程；这不表示模型推理本身要求 8 卡。
 
 ## Checkpoint 与训练配置
 
-### mix4 中间 checkpoint（当前最小推理默认）
+### mix4 checkpoint（最小推理默认使用 30k，训练最终为 40k）
 
 ```text
 run root:
@@ -21,20 +21,23 @@ run root:
 DCP:
 .../checkpoints/iter_000030000
 
+final DCP:
+.../checkpoints/iter_000040000
+
 frozen training config:
 .../config.yaml
 ```
 
 训练 job 为 `job-3cmb7l4p44jw`，AIHC `cce-pmm1yohj/train21`，global batch 16，目标 40,000 optimizer steps，checkpoint 每 10,000 steps。
 
-### clean 中间 checkpoint
+### clean 最终 checkpoint
 
 ```text
 run root:
 /mnt/gyc_ckp/Action-Following/outputs/cosmos3/clean/train_40000_20260721_motusdata_future32_prompt_job-ogwrcxzuaokw/bs16/cosmos3_actionfollowing/forward_dynamics_clean/cosmos3_nano_afd_full50_clean_rot6d20_a32_future32_prompt_bs16_40000step
 
 DCP:
-.../checkpoints/iter_000020000
+.../checkpoints/iter_000040000
 
 frozen training config:
 .../config.yaml
@@ -150,18 +153,18 @@ bash examples/actionfollowing/run_cosmos3_minimal_inference.sh
 本次 AIHC job 的固定输出根为：
 
 ```text
-/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/train_40000_20260721_motusdata_future32_prompt_job-3cmb7l4p44jw/bs16/cosmos3_actionfollowing/forward_dynamics_mix4/cosmos3_nano_afd_full50_mix4_rot6d20_a32_future32_prompt_bs16_40000step/handoff_inference/iter_000030000_place_burger_fries_clean0_steps10_aihc_train_20260721
+/mnt/gyc_ckp/Action-Following/outputs/cosmos3/mix4/train_40000_20260721_motusdata_future32_prompt_job-3cmb7l4p44jw/bs16/cosmos3_actionfollowing/forward_dynamics_mix4/cosmos3_nano_afd_full50_mix4_rot6d20_a32_future32_prompt_bs16_40000step/handoff_inference/iter_000030000_place_burger_fries_clean0_steps10_aihc_train_20260721_job-9i1cciznft0a
 ```
 
-验收时至少检查：
+本次 `job-9i1cciznft0a` 的验收结果：
 
-- `hf_model/checkpoint.json` 和 safetensors 存在；
-- `input/input_metadata.json` 记录 action/camera/prompt SHA256；
-- `output/.../sample_outputs.json` 状态为 success；
-- 输出 MP4 可解码、帧数非零；
-- 日志没有 traceback、OOM 或 non-finite；
-- `INFERENCE_RESULT.txt` 为 `status=passed` 且 checkpoint 指向本次 DCP；
-- 不把 30k/20k 中间推理结果写成最终 40k 结果。
+- `hf_model/checkpoint.json` 和 safetensors 已由 `iter_000030000` DCP 导出；
+- 输入为 `place_burger_fries/clean/episode_0`，physical Rot6D20 action `[32,20]`、finite、无归一化；
+- 输出 action 同为 finite `[32,20]`，`sample_outputs.json` 状态为 success；
+- `vision.mp4` 为 H.264、224×256、33 帧、503,316 bytes，可解码；
+- 相机排布为 head-top、wrists-bottom 的 T-shape；
+- `INFERENCE_RESULT.txt` 为 `status=passed`，源码 commit 为 `26dd6adecbeb9f5cb20a1661f0ddb681916b108d`；
+- 该结果仅证明 30k checkpoint 的最小推理链路，不等价于 40k checkpoint 的推理验收。
 
 ## 代码位置
 
